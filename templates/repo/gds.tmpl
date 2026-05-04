@@ -1,14 +1,152 @@
 {{template "base/head" .}}
 <div role="main" aria-label="{{.Title}}" class="page-content repository gds-viewer">
 	{{template "repo/header" .}}
-	<div class="ui container" style="flex-grow:1; display:flex; width:100%; padding:0;">
-		<iframe
-			src="{{.GDSIframeURL}}"
-			style="flex-grow:1; width:100%; border:none;"
-			allow="fullscreen"
-			sandbox="allow-scripts allow-same-origin"
-			title="{{ctx.Locale.Tr "repo.gds_viewer"}}"
-		></iframe>
+	<div class="ui container" style="display:flex; flex-grow:1; width:100%; padding:0; min-height:0;">
+		<div id="gds-sidebar" style="width:220px; background:#1e1e2e; color:#cdd6f4; overflow-y:auto; padding:12px; flex-shrink:0;">
+			<h4 style="margin:0 0 8px 0; color:#89b4fa;">GDS Files</h4>
+			{{if .GDSFiles}}
+			<div id="gds-file-list">
+				{{range $i, $f := .GDSFiles}}
+				<div class="gds-file-item" data-file="{{$f}}" style="padding:6px 8px; cursor:pointer; border-radius:4px; margin-bottom:2px; font-size:13px; word-break:break-all;">
+					{{$f}}
+				</div>
+				{{end}}
+			</div>
+			{{else}}
+			<p style="color:#6c7086; font-size:13px;">No .gds files found in this repository.</p>
+			{{end}}
+		</div>
+		<div id="gds-map" style="flex-grow:1; background:#1a1a2e;"></div>
 	</div>
 </div>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10/ol.css">
+<script src="https://cdn.jsdelivr.net/npm/ol@10/dist/ol.js"></script>
+<style>
+#gds-map { min-height: 500px; }
+.gds-file-item:hover { background: #313244; }
+.gds-file-item.active { background: #45475a; }
+.gds-layer-legend { display:flex; align-items:center; gap:6px; padding:3px 0; font-size:12px; cursor:pointer; }
+.gds-layer-swatch { width:14px; height:14px; border-radius:2px; flex-shrink:0; }
+.gds-layer-swatch.hidden { opacity: 0.2; }
+</style>
+<script nonce="{{ctx.CspScriptNonce}}">
+(function() {
+	var gdsFiles = {{.GDSFilesJSON}};
+	var mapEl = document.getElementById('gds-map');
+	if (!mapEl) return;
+
+	var repoLink = '{{.RepoLink}}';
+
+	var source = new ol.source.Vector();
+	var layer = new ol.layer.Vector({
+		source: source,
+		style: function(feature) {
+			var color = feature.get('color') || '#ffffff';
+			var visible = feature.get('visible') !== false;
+			if (!visible) return new ol.style.Style({});
+			return new ol.style.Style({
+				stroke: new ol.style.Stroke({ color: color, width: 1 }),
+				fill: new ol.style.Fill({ color: color + '33' })
+			});
+		}
+	});
+
+	var proj = new ol.proj.Projection({code: 'pixel', units: 'pixels', extent: [-1e9, -1e9, 1e9, 1e9]});
+	var map = new ol.Map({
+		target: 'gds-map',
+		layers: [layer],
+		view: new ol.View({ projection: proj, center: [0, 0], zoom: 2 })
+	});
+
+	var layerColors = {};
+	var layerNames = {};
+	var allFeatures = [];
+
+	function loadGDS(filePath) {
+		var url = repoLink + '/gds/data/' + encodeURIComponent(filePath);
+		var xhr = new XMLHttpRequest();
+		xhr.open('GET', url, true);
+		xhr.onload = function() {
+			if (xhr.status !== 200) {
+				console.error('Load error: ' + xhr.status + ' ' + xhr.responseText.substring(0, 200));
+				return;
+			}
+			source.clear();
+			allFeatures = [];
+			layerColors = {};
+			layerNames = {};
+			try {
+				var geojson = JSON.parse(xhr.responseText);
+				var features = new ol.format.GeoJSON().readFeatures(geojson, {
+					featureProjection: proj,
+					dataProjection: proj
+				});
+				features.forEach(function(f, i) {
+					var lid = f.get('layer');
+					var dt = f.get('data_type');
+					var color = f.get('color');
+					var key = lid + '/' + dt;
+					layerColors[key] = color;
+					layerNames[key] = 'L' + lid + '/' + dt + ' (' + features.length + ' elements)';
+					allFeatures.push(f);
+					f.set('layerKey', key);
+					f.set('visible', true);
+					source.addFeature(f);
+				});
+				if (features.length > 0) {
+					map.getView().fit(source.getExtent(), { padding: [40, 40, 40, 40], maxZoom: 18, duration: 300 });
+				}
+				buildLegend();
+			} catch(e) {
+				console.error('Parse error: ' + e.message, e);
+			}
+		};
+		xhr.onerror = function() { console.error('Failed to load ' + filePath); };
+		xhr.send();
+	}
+
+	function buildLegend() {
+		var sidebar = document.getElementById('gds-sidebar');
+		var existing = sidebar.querySelector('.gds-legend-section');
+		if (existing) existing.remove();
+		var keys = Object.keys(layerColors);
+		if (!keys.length) return;
+		var div = document.createElement('div');
+		div.className = 'gds-legend-section';
+		div.style.marginTop = '12px';
+		div.innerHTML = '<h4 style="margin:0 0 6px 0; color:#89b4fa;">Layers</h4>';
+		keys.forEach(function(key) {
+			var row = document.createElement('div');
+			row.className = 'gds-layer-legend';
+			row.innerHTML = '<span class="gds-layer-swatch" style="background:' + layerColors[key] + ';" data-key="' + key + '"></span> ' + key;
+			row.onclick = function() {
+				var swatch = row.querySelector('.gds-layer-swatch');
+				var hidden = swatch.classList.toggle('hidden');
+				allFeatures.forEach(function(f) {
+					if (f.get('layerKey') === key) f.set('visible', !hidden);
+				});
+				layer.changed();
+			};
+			div.appendChild(row);
+		});
+		sidebar.appendChild(div);
+	}
+
+	document.querySelectorAll('.gds-file-item').forEach(function(item) {
+		item.addEventListener('click', function() {
+			document.querySelectorAll('.gds-file-item.active').forEach(function(el) { el.classList.remove('active'); });
+			item.classList.add('active');
+			loadGDS(item.getAttribute('data-file'));
+		});
+	});
+
+	if (gdsFiles && gdsFiles.length > 0) {
+		setTimeout(function() {
+			var el = document.querySelector('.gds-file-item');
+			if (el) el.click();
+		}, 200);
+	}
+})();
+</script>
 {{template "base/footer" .}}

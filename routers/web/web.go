@@ -1505,6 +1505,10 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 		}
 	}, optSignIn, context.RepoAssignment)
 
+	m.Group("/{username}/{reponame}", func() {
+		m.Get("/gds/data/{filepath:.*}", repo.GDSViewerData)
+	}, optSignIn, context.RepoAssignment)
+
 	m.Group("/{username}/{reponame}/projects", func() {
 		m.Get("", repo.Projects)
 		m.Get("/{id}", repo.ViewProject)

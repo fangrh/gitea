@@ -4,27 +4,26 @@
 package repo
 
 import (
+	"encoding/json"
+	"html/template"
 	"net/http"
-	"net/url"
+	"path/filepath"
+	"strings"
 
+	"code.gitea.io/gitea/modules/gdsviewer"
 	"code.gitea.io/gitea/modules/setting"
-	"code.gitea.io/gitea/modules/templates"
+	giteaTemplates "code.gitea.io/gitea/modules/templates"
 	"code.gitea.io/gitea/services/context"
 )
 
 const (
-	tplGDSViewer templates.TplName = "repo/gds"
+	tplGDSViewer giteaTemplates.TplName = "repo/gds"
 )
 
-// GDSViewer renders the GDS layout viewer page inside an iframe
+// GDSViewer renders the GDS layout viewer page
 func GDSViewer(ctx *context.Context) {
 	if !setting.GDSViewer.Enabled {
 		ctx.NotFound(nil)
-		return
-	}
-
-	if setting.GDSViewer.IframeURL == "" {
-		ctx.ServerError("GDSViewer URL not configured", nil)
 		return
 	}
 
@@ -34,12 +33,93 @@ func GDSViewer(ctx *context.Context) {
 		return
 	}
 
-	params := url.Values{}
-	params.Set("repo", ctx.Repo.Repository.FullName())
-	params.Set("branch", ctx.Repo.BranchName)
-
+	gdsFiles := listGDSFiles(ctx)
+	gdsFilesJSON, _ := json.Marshal(gdsFiles)
+	if gdsFiles == nil {
+		gdsFiles = []string{}
+		gdsFilesJSON = []byte("[]")
+	}
+	ctx.Data["GDSFiles"] = gdsFiles
+	ctx.Data["GDSFilesJSON"] = template.JS(gdsFilesJSON)
 	ctx.Data["Title"] = ctx.Tr("repo.gds_viewer")
 	ctx.Data["PageIsGDSViewer"] = true
-	ctx.Data["GDSIframeURL"] = setting.GDSViewer.IframeURL + "?" + params.Encode()
 	ctx.HTML(http.StatusOK, tplGDSViewer)
+}
+
+// GDSViewerData serves GDS file geometry as GeoJSON
+func GDSViewerData(ctx *context.Context) {
+	if !setting.GDSViewer.Enabled {
+		ctx.NotFound(nil)
+		return
+	}
+
+	filePath := ctx.PathParam("filepath")
+	if filePath == "" || !strings.HasSuffix(strings.ToLower(filePath), ".gds") {
+		ctx.JSON(http.StatusBadRequest, map[string]string{"error": "invalid file path"})
+		return
+	}
+
+	branchName := ctx.Repo.BranchName
+	if branchName == "" {
+		branchName = ctx.Repo.Repository.DefaultBranch
+	}
+
+	commit, err := ctx.Repo.GitRepo.GetBranchCommit(branchName)
+	if err != nil {
+		ctx.ServerError("GetBranchCommit", err)
+		return
+	}
+
+	blob, err := commit.Tree.GetBlobByPath(filePath)
+	if err != nil {
+		ctx.ServerError("GetBlobByPath", err)
+		return
+	}
+
+	data, err := blob.GetBlobBytes(100 * 1024 * 1024) // 100MB limit
+	if err != nil {
+		ctx.ServerError("GetBlobBytes", err)
+		return
+	}
+
+	parsed, err := gdsviewer.ParseGDS(strings.NewReader(string(data)))
+	if err != nil {
+		ctx.JSON(http.StatusUnprocessableEntity, map[string]string{"error": "failed to parse GDS file: " + err.Error()})
+		return
+	}
+
+	geoJSON, err := parsed.ToScaledGeoJSON()
+	if err != nil {
+		ctx.ServerError("ToGeoJSON", err)
+		return
+	}
+
+	ctx.Resp.Header().Set("Content-Type", "application/json")
+	ctx.Resp.WriteHeader(http.StatusOK)
+	ctx.Resp.Write(geoJSON)
+}
+
+func listGDSFiles(ctx *context.Context) []string {
+	branchName := ctx.Repo.BranchName
+	if branchName == "" {
+		branchName = ctx.Repo.Repository.DefaultBranch
+	}
+
+	commit, err := ctx.Repo.GitRepo.GetBranchCommit(branchName)
+	if err != nil {
+		return nil
+	}
+
+	entries, err := commit.Tree.ListEntriesRecursiveFast()
+	if err != nil {
+		return nil
+	}
+
+	var files []string
+	for _, entry := range entries {
+		if !entry.IsDir() && !entry.IsSubModule() && strings.HasSuffix(strings.ToLower(entry.Name()), ".gds") {
+			files = append(files, filepath.ToSlash(entry.Name()))
+		}
+	}
+	return files
 }
