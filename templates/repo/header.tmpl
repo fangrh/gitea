@@ -165,6 +165,12 @@
 						</a>
 					{{end}}
 
+					{{if .GDSViewerEnabled}}
+					<a class="{{if .PageIsGDSViewer}}active {{end}}item" href="{{.RepoLink}}/gds">
+						{{svg "octicon-graph"}} {{ctx.Locale.Tr "repo.gds_viewer"}}
+					</a>
+					{{end}}
+
 					{{template "custom/extra_tabs" .}}
 
 					{{if .Permission.IsAdmin}}

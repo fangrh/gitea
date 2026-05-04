@@ -158,6 +158,7 @@ func loadCommonSettingsFrom(cfg ConfigProvider) error {
 	loadMarkupFrom(cfg)
 	loadGlobalLockFrom(cfg)
 	loadOtherFrom(cfg)
+	loadGDSViewerFrom(cfg)
 	return nil
 }
 

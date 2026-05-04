@@ -1500,6 +1500,9 @@ func registerWebRoutes(m *web.Router, webAuth *AuthMiddleware) {
 		if setting.Packages.Enabled {
 			m.Get("/packages", repo.Packages)
 		}
+		if setting.GDSViewer.Enabled {
+			m.Get("/gds", repo.GDSViewer)
+		}
 	}, optSignIn, context.RepoAssignment)
 
 	m.Group("/{username}/{reponame}/projects", func() {

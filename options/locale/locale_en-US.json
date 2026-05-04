@@ -1987,6 +1987,8 @@
   "repo.wiki.last_updated": "Last updated %s",
   "repo.wiki.page_name_desc": "Enter a name for this Wiki page. Some special names are: 'Home', '_Sidebar' and '_Footer'.",
   "repo.wiki.original_git_entry_tooltip": "View original Git file instead of using friendly link.",
+  "repo.gds_viewer": "GDS Viewer",
+  "repo.gds_viewer.repo_not_ready": "This repository is not ready yet. The GDS Viewer will be available once the repository is fully created.",
   "repo.activity": "Activity",
   "repo.activity.navbar.pulse": "Pulse",
   "repo.activity.navbar.code_frequency": "Code Frequency",

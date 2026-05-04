@@ -1,0 +1,14 @@
+{{template "base/head" .}}
+<div role="main" aria-label="{{.Title}}" class="page-content repository gds-viewer">
+	{{template "repo/header" .}}
+	<div class="ui container" style="flex-grow:1; display:flex; width:100%; padding:0;">
+		<iframe
+			src="{{.GDSIframeURL}}"
+			style="flex-grow:1; width:100%; border:none;"
+			allow="fullscreen"
+			sandbox="allow-scripts allow-same-origin"
+			title="{{ctx.Locale.Tr "repo.gds_viewer"}}"
+		></iframe>
+	</div>
+</div>
+{{template "base/footer" .}}
