@@ -499,6 +499,50 @@ dragBox.on('boxend', function(e) {
     onSelectionChanged();
 });
 
+// --- Draw interactions ---
+var drawRectangle = new ol.interaction.Draw({
+    source: drawSource,
+    type: 'Circle',
+    geometryFunction: ol.interaction.Draw.createBox()
+});
+drawRectangle.setActive(false);
+map.addInteraction(drawRectangle);
+drawInteractions['rectangle'] = drawRectangle;
+
+var drawCircle = new ol.interaction.Draw({
+    source: drawSource,
+    type: 'Circle'
+});
+drawCircle.setActive(false);
+map.addInteraction(drawCircle);
+drawInteractions['circle'] = drawCircle;
+
+var drawLine = new ol.interaction.Draw({
+    source: drawSource,
+    type: 'LineString'
+});
+drawLine.setActive(false);
+map.addInteraction(drawLine);
+drawInteractions['line'] = drawLine;
+
+var drawPolygon = new ol.interaction.Draw({
+    source: drawSource,
+    type: 'Polygon'
+});
+drawPolygon.setActive(false);
+map.addInteraction(drawPolygon);
+drawInteractions['polygon'] = drawPolygon;
+
+Object.keys(drawInteractions).forEach(function(key) {
+    drawInteractions[key].on('drawend', function(e) {
+        var feature = e.feature;
+        feature.set('isDrawn', true);
+        feature.set('shapeType', key);
+        feature.set('selected', false);
+        setTimeout(function() { setMode('select'); }, 50);
+    });
+});
+
 var allFeatures = [];
 var layerColors = {};
 function fitView() {
