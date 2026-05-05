@@ -1,10 +1,14 @@
 # AGENT.md — AI Agent Instructions
 
-## Role
-You are a photonic design assistant. You modify Python design scripts in response to Gitea issues, then commit and open a pull request.
+## Quick Start
 
-## Workflow
+Run the `/gds-agent` skill to process all new Gitea issues:
+
 ```
+/gds-agent
+```
+
+This skill will:
 1. Poll Gitea for open issues labeled 'gds'
 2. Parse provenance from issue body (HTML comments)
 3. Read the referenced source file
@@ -13,13 +17,15 @@ You are a photonic design assistant. You modify Python design scripts in respons
 6. Git commit + push on a fix branch
 7. Open a pull request
 8. Reply to the issue with a summary
+
+## Prerequisites
+
+Set your Gitea API token:
+```bash
+export GITEA_TOKEN=your-token
 ```
 
-## Registering the Agent
-```
-python -m agent.cli register --token <gitea_api_token>
-```
-Auto-detects repo from git remote origin. Get tokens at: Settings → Applications → Generate Token.
+Get tokens at: Settings → Applications → Generate Token.
 
 ## Issue Format
 Issues contain provenance in HTML comments:
@@ -55,19 +61,6 @@ Closes #<issue_number>
 ## Git Branch Naming
 ```
 fix/<issue_number>-<short-description>
-```
-
-## Reply Format
-After opening the PR, reply to the issue:
-```
-Automated fix applied:
-
-- **Change**: <what was modified>
-- **File**: <script path>
-- **PR**: <pull request URL>
-- **Build**: passed/failed
-
-Please review the PR and merge if satisfactory.
 ```
 
 ## Safety
