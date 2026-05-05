@@ -336,8 +336,7 @@ function loadSource() {
     }).catch(function(e) {
         console.error('loadSource failed:', url, e);
         panel.innerHTML = '<p class="placeholder">Failed to load source: ' + esc(e.message)
-            + '<br><small style="color:#6c7086;">' + esc(filePath)
-            + '<br>The file may be in the gdsfactory library (not this repo).</small></p>';
+            + '<br><small style="color:#6c7086;">' + esc(filePath) + '</small></p>';
     });
 }
 
