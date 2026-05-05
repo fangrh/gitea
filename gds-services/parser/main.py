@@ -188,3 +188,19 @@ def get_gds_data(repo: str, ref: str = "main", path: str = ""):
     if result.returncode != 0:
         raise HTTPException(404, f"File not found: {path}")
     return Response(content=json.dumps(parse_gds(result.stdout)), media_type="application/json")
+
+
+@app.get("/source")
+def get_source(repo: str, ref: str = "main", path: str = ""):
+    """Return source file content for code inspection."""
+    owner, name = repo.split("/")
+    repo_dir = pathlib.Path(f"/data/git/repositories/{owner.lower()}/{name.lower()}.git")
+    if not repo_dir.exists():
+        raise HTTPException(404, f"Repo not found: {repo}")
+    result = subprocess.run(
+        ["git", "--git-dir", str(repo_dir), "show", f"{ref}:{path}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise HTTPException(404, f"File not found: {path}")
+    return Response(content=result.stdout, media_type="text/plain; charset=utf-8")

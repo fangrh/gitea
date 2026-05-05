@@ -34,6 +34,14 @@ body { display: flex; height: 100vh; background: #1a1a2e; font-family: -apple-sy
 .legend-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; cursor: pointer; }
 .swatch { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; }
 .swatch.hidden { opacity: 0.2; }
+.tab-btn { padding: 2px 8px; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 11px; color: #6c7086; border-bottom: 2px solid transparent; }
+.tab-btn.active { color: #89b4fa; border-bottom-color: #89b4fa; }
+.tab-btn:hover { color: #cdd6f4; }
+#source-panel { height: 100%; overflow-y: auto; }
+.src-line { display: flex; font: 12px/1.6 'Cascadia Code', 'Fira Code', 'Consolas', monospace; padding: 0 8px; margin: 0; }
+.src-line.hl { background: rgba(250, 200, 80, 0.15); border-left: 3px solid #f9e2af; }
+.src-line .ln { color: #585b70; min-width: 44px; text-align: right; padding-right: 12px; user-select: none; flex-shrink: 0; }
+.src-line .code { color: #cdd6f4; white-space: pre; overflow-x: auto; }
 </style>
 </head>
 <body>
@@ -45,12 +53,19 @@ body { display: flex; height: 100vh; background: #1a1a2e; font-family: -apple-sy
 <div id="map-container">
     <div id="map"></div>
     <div id="console">
-        <div id="console-header" onclick="toggleConsole()" title="Click to collapse/expand">
-            <span>&#9660; Inspect</span>
-            <button id="copy-btn" onclick="copyYAML(event)" title="Copy as YAML">Copy YAML</button>
+        <div id="console-header">
+            <span style="display:flex;align-items:center;gap:2px;">
+                <span class="tab-btn active" data-tab="info" onclick="switchTab(event, 'info')">Info</span>
+                <span class="tab-btn" data-tab="source" onclick="switchTab(event, 'source')">Source</span>
+            </span>
+            <span style="display:flex;align-items:center;gap:6px;">
+                <button id="copy-btn" onclick="copyYAML(event)" title="Copy as YAML">Copy YAML</button>
+                <span onclick="toggleConsole()" title="Collapse" style="cursor:pointer;color:#6c7086;font-size:14px;">&#9660;</span>
+            </span>
         </div>
         <div id="console-body">
-            <p class="placeholder">Click a polygon to inspect</p>
+            <div id="info-panel"><p class="placeholder">Click a polygon to inspect</p></div>
+            <div id="source-panel" style="display:none;"><p class="placeholder">Click a polygon, then switch to Source tab to view code</p></div>
         </div>
     </div>
 </div>
@@ -61,6 +76,8 @@ var repo = params.get('repo') || '';
 var branch = params.get('branch') || 'main';
 var currentFilePath = '';
 var selectedFeature = null;
+var currentProvenance = {};  // {file, line} for source tab
+var activeTab = 'info';
 
 var source = new ol.source.Vector();
 
@@ -220,20 +237,20 @@ function buildLegend() {
 // --- Console panel ---
 
 function showInspect(feature) {
-    var body = document.getElementById('console-body');
     var layer = feature.get('layer') || '?';
     var provByCell = feature.get('provByCell') || {};
     var meta = feature.get('meta') || {};
     var bbox = meta.bbox || [];
 
-    body.innerHTML = '';
+    // Build info panel
+    var panel = document.getElementById('info-panel');
+    panel.innerHTML = '';
     var d = frag();
     addKV(d, 'layer', layer);
     addKV(d, 'area', (meta.area_um2 || '?') + ' um2');
     addKV(d, 'bbox', '[' + bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']');
     addKV(d, 'vertices', String(meta.vertex_count || '?'));
 
-    // Show provenance for each cell on this layer
     var cellNames = Object.keys(provByCell);
     if (cellNames.length > 0) {
         addSep(d);
@@ -251,13 +268,72 @@ function showInspect(feature) {
     addKV(d, 'repo', repo);
     addKV(d, 'ref', branch);
     addKV(d, 'path', currentFilePath);
+    panel.appendChild(d);
 
-    body.appendChild(d);
+    // Store first provenance entry for source tab
+    var firstCell = cellNames[0];
+    if (firstCell && provByCell[firstCell].file) {
+        currentProvenance = provByCell[firstCell];
+    } else {
+        currentProvenance = {};
+    }
+
+    // If source tab is active, reload it
+    if (activeTab === 'source') {
+        loadSource();
+    }
 }
 
 function clearInspect() {
-    var body = document.getElementById('console-body');
-    body.innerHTML = '<p class="placeholder">Click a polygon to inspect</p>';
+    document.getElementById('info-panel').innerHTML = '<p class="placeholder">Click a polygon to inspect</p>';
+    document.getElementById('source-panel').innerHTML = '<p class="placeholder">Click a polygon, then switch to Source tab to view code</p>';
+    currentProvenance = {};
+}
+
+function switchTab(e, tab) {
+    e.stopPropagation();
+    activeTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.tab === tab);
+    });
+    document.getElementById('info-panel').style.display = tab === 'info' ? '' : 'none';
+    document.getElementById('source-panel').style.display = tab === 'source' ? '' : 'none';
+    if (tab === 'source' && currentProvenance.file) {
+        loadSource();
+    }
+}
+
+function loadSource() {
+    var panel = document.getElementById('source-panel');
+    panel.innerHTML = '<p class="placeholder" style="padding:12px;">Loading...</p>';
+
+    var url = '/source?repo=' + encodeURIComponent(repo) + '&ref=' + branch
+        + '&path=' + encodeURIComponent(currentProvenance.file);
+
+    fetch(url).then(function(r) {
+        if (!r.ok) throw Error('HTTP ' + r.status);
+        return r.text();
+    }).then(function(code) {
+        var lines = code.split('\n');
+        var targetLine = currentProvenance.line ? parseInt(currentProvenance.line) : -1;
+        var html = '';
+        for (var i = 0; i < lines.length; i++) {
+            var ln = i + 1;
+            var cls = (ln === targetLine) ? 'src-line hl' : 'src-line';
+            html += '<div class="' + cls + '"><span class="ln">' + ln + '</span><span class="code">' + esc(lines[i]) + '</span></div>';
+        }
+        panel.innerHTML = html;
+
+        // Auto-scroll to highlighted line
+        if (targetLine > 0) {
+            var hlEl = panel.querySelector('.src-line.hl');
+            if (hlEl) {
+                hlEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+        }
+    }).catch(function(e) {
+        panel.innerHTML = '<p class="placeholder">Failed to load source: ' + esc(e.message) + '</p>';
+    });
 }
 
 function addKV(parent, key, val, hl) {
@@ -278,7 +354,11 @@ function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').
 
 function toggleConsole() {
     var c = document.getElementById('console');
+    var icon = document.querySelector('#console-header span[title="Collapse"]');
     c.classList.toggle('collapsed');
+    if (icon) {
+        icon.innerHTML = c.classList.contains('collapsed') ? '&#9654;' : '&#9660;';
+    }
 }
 
 function copyYAML(e) {
@@ -358,8 +438,8 @@ function fallbackCopy(text, btn) {
 }
 
 function showYamlPrompt(text) {
-    // Show YAML in the console body as a selectable textarea
-    var body = document.getElementById('console-body');
+    // Show YAML in the info panel as a selectable textarea
+    var body = document.getElementById('info-panel');
     var pre = document.createElement('div');
     pre.style.cssText = 'background:#1e1e2e;padding:8px;border-radius:4px;margin-top:4px;white-space:pre-wrap;font:12px monospace;color:#cdd6f4;max-height:200px;overflow-y:auto;';
     pre.textContent = text;
