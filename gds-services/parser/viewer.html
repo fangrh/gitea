@@ -123,7 +123,68 @@ function clearSelection() {
 }
 
 function onSelectionChanged() {
-    // Will be implemented in Task 4
+    var features = selectedFeatures.getArray();
+    var count = features.length;
+
+    if (count === 0) {
+        clearInspect();
+        return;
+    }
+
+    if (count === 1) {
+        showInspect(features[0]);
+        return;
+    }
+
+    showMultiInspect(features);
+}
+
+function showMultiInspect(features) {
+    var panel = document.getElementById('info-panel');
+    panel.innerHTML = '';
+
+    var countDiv = document.createElement('div');
+    countDiv.className = 'kv';
+    countDiv.innerHTML = '<span class="key">selected</span><span class="val">Selected: ' + features.length + ' components</span>';
+    panel.appendChild(countDiv);
+
+    if (features.length > 50) {
+        var warn = document.createElement('div');
+        warn.className = 'kv';
+        warn.innerHTML = '<span class="key"></span><span class="val hl">Large selection (' + features.length + ' components). Performance may be affected.</span>';
+        panel.appendChild(warn);
+    }
+
+    var fileMap = {};
+    features.forEach(function(f) {
+        var prov = f.get('provenance') || {};
+        if (prov.file && prov.line) {
+            var filePath = prov.file.replace(/\\/g, '/');
+            if (!fileMap[filePath]) fileMap[filePath] = [];
+            var ln = parseInt(prov.line);
+            if (fileMap[filePath].indexOf(ln) === -1) fileMap[filePath].push(ln);
+        }
+    });
+
+    addSep(panel);
+
+    var fileKeys = Object.keys(fileMap);
+    if (fileKeys.length > 0) {
+        addKV(panel, 'files', fileKeys.length + ' file(s) with provenance');
+        fileKeys.forEach(function(fp) {
+            var base = fp.split('/').pop();
+            addKV(panel, '', base + ': lines [' + fileMap[fp].sort(function(a,b){return a-b;}).join(', ') + ']');
+        });
+    } else {
+        addKV(panel, 'provenance', 'No provenance data in selection');
+    }
+
+    addSep(panel);
+    addKV(panel, 'repo', repo);
+    addKV(panel, 'ref', branch);
+    addKV(panel, 'path', currentFilePath);
+
+    updateMultiSourcePanel(fileMap);
 }
 
 // GDS coordinates are in micrometers (μm).  Prevent OpenLayers from
@@ -361,7 +422,6 @@ function showInspect(feature) {
     var meta = feature.get('meta') || {};
     var bbox = meta.bbox || [];
 
-    // Build info panel
     var panel = document.getElementById('info-panel');
     panel.innerHTML = '';
     var d = frag();
@@ -386,29 +446,20 @@ function showInspect(feature) {
     addKV(d, 'path', currentFilePath);
     panel.appendChild(d);
 
-    // Store first provenance entry for source tab
-    if (provenance.file) {
-        currentProvenance = provenance;
-    } else {
-        currentProvenance = {};
-    }
-
-    // Update source panel placeholder based on provenance availability
     var sp = document.getElementById('source-panel');
-    if (!currentProvenance.file) {
+    if (provenance.file) {
+        var fileMap = {};
+        var fp = provenance.file.replace(/\\/g, '/');
+        fileMap[fp] = [parseInt(provenance.line)];
+        updateMultiSourcePanel(fileMap);
+    } else {
         sp.innerHTML = '<p class="placeholder">No provenance data in this GDS file.<br><small style="color:#585b70;">Rebuild the GDS with the latest gdsfactory to enable source inspection.</small></p>';
-    }
-
-    // If source tab is active, reload it
-    if (activeTab === 'source') {
-        loadSource();
     }
 }
 
 function clearInspect() {
     document.getElementById('info-panel').innerHTML = '<p class="placeholder">Click a polygon to inspect</p>';
     document.getElementById('source-panel').innerHTML = '<p class="placeholder">Click a polygon, then switch to Source tab to view code<br><small style="color:#585b70;">Requires provenance data embedded in the GDS file.</small></p>';
-    currentProvenance = {};
 }
 
 function switchTab(e, tab) {
