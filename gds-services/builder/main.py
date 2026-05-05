@@ -108,31 +108,17 @@ def _run_build(design_path: str, workspace: pathlib.Path) -> subprocess.Complete
     env["PYTHONPATH"] = str(workspace) + ":" + env.get("PYTHONPATH", "")
 
     snakefile = workspace / "Snakefile"
-    if snakefile.exists():
-        design_name = pathlib.Path(design_path).stem
-        return subprocess.run(
-            [
-                "snakemake", "build_gds",
-                "--snakefile", str(snakefile),
-                "--config", f"design={design_name}",
-                "--cores", "4",
-                "--printshellcmds",
-            ],
-            cwd=str(workspace),
-            capture_output=True, text=True,
-            timeout=TIMEOUT,
-            env=env,
-        )
+    if not snakefile.exists():
+        raise FileNotFoundError("No Snakefile in repo — only snakemake builds are supported")
 
-    # No Snakefile — run the script directly via runpy for provenance
-    script_path = str(workspace / design_path)
-    wrapper = (
-        "import runpy, gdsfactory as gf; "
-        "gf.gpdk.PDK.activate(); "
-        f"runpy.run_path({script_path!r}, run_name='__main__')"
-    )
+    design_name = pathlib.Path(design_path).stem
     return subprocess.run(
-        ["python", "-c", wrapper],
+        [
+            "snakemake", f"gds/{design_name}.gds",
+            "--snakefile", str(snakefile),
+            "--cores", "4",
+            "--printshellcmds",
+        ],
         cwd=str(workspace),
         capture_output=True, text=True,
         timeout=TIMEOUT,
@@ -332,16 +318,8 @@ def build_all(
                 "built_files": cached,
             }
 
-        # No Snakefile — discover and build individual designs
-        designs = _find_py_files(ws, "designs")
-        results = []
-        for d in designs:
-            try:
-                r = do_build(owner, name, d, ref)
-                results.append(r)
-            except Exception as e:
-                results.append({"status": "error", "design": d, "error": str(e)})
-        return {"status": "ok", "method": "individual", "results": results}
+        # No Snakefile — not supported
+        raise HTTPException(400, "No Snakefile found in repo. Only snakemake builds are supported.")
 
     finally:
         shutil.rmtree(ws, ignore_errors=True)
