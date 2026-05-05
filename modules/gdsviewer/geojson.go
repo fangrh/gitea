@@ -14,36 +14,63 @@ func (p *ParsedGDS) ToScaledGeoJSON() ([]byte, error) {
 	scale := p.Scale()
 	groups := make(map[[2]int16][][][][]float64)
 
+	// Build set of cells referenced by any SREF — suppress their direct geometry
+	srefTargets := make(map[string]bool)
 	for _, cell := range p.Cells {
 		for _, el := range cell.elements {
-			// SREF/AREF have 1 XY point (placement); BOUNDARY/PATH/BOX have 2+
+			if el.recType == 0x0A || el.recType == 0x0B {
+				srefTargets[el.sname] = true
+			}
+		}
+	}
+	// Also mark recursive targets (cells referenced by SREFs within SREF targets)
+	for {
+		added := false
+		for name := range srefTargets {
+			if cell, ok := p.Cells[name]; ok {
+				for _, el := range cell.elements {
+					if (el.recType == 0x0A || el.recType == 0x0B) && !srefTargets[el.sname] {
+						srefTargets[el.sname] = true
+						added = true
+					}
+				}
+			}
+		}
+		if !added {
+			break
+		}
+	}
+
+	for cellName, cell := range p.Cells {
+		// Skip GDSfactory internal metadata cells ($-prefixed)
+		if len(cellName) > 0 && cellName[0] == '$' {
+			continue
+		}
+
+		for _, el := range cell.elements {
 			if len(el.xy) < 2 && el.recType != 0x0A && el.recType != 0x0B {
 				continue
 			}
+			key := [2]int16{el.layer, el.dataType}
 
 			switch el.recType {
 			case 0x08: // BOUNDARY
-				groups[[2]int16{el.layer, el.dataType}] = append(
-					groups[[2]int16{el.layer, el.dataType}],
-					[][][]float64{pointsToScaledCoords(el.xy, scale)},
-				)
+				if !srefTargets[cellName] {
+					groups[key] = append(groups[key], [][][]float64{pointsToScaledCoords(el.xy, scale)})
+				}
 
 			case 0x2D: // BOX
-				if r := boxToScaledCoords(el.xy, scale); r != nil {
-					groups[[2]int16{el.layer, el.dataType}] = append(
-						groups[[2]int16{el.layer, el.dataType}],
-						[][][]float64{r},
-					)
+				if !srefTargets[cellName] {
+					if r := boxToScaledCoords(el.xy, scale); r != nil {
+						groups[key] = append(groups[key], [][][]float64{r})
+					}
 				}
 
 			case 0x09: // PATH
-				if len(el.xy) >= 2 {
+				if !srefTargets[cellName] && len(el.xy) >= 2 {
 					halfW := float64(el.width) * scale / 2.0
 					if r := pathToScaledCoords(el.xy, scale, halfW); r != nil {
-						groups[[2]int16{el.layer, el.dataType}] = append(
-							groups[[2]int16{el.layer, el.dataType}],
-							[][][]float64{r},
-						)
+						groups[key] = append(groups[key], [][][]float64{r})
 					}
 				}
 
@@ -59,10 +86,10 @@ func (p *ParsedGDS) ToScaledGeoJSON() ([]byte, error) {
 					dy = float64(el.xy[0].Y) * scale
 				}
 				for _, refEl := range refCell.elements {
-					refKey := [2]int16{refEl.layer, refEl.dataType}
 					if len(refEl.xy) < 2 {
 						continue
 					}
+					refKey := [2]int16{refEl.layer, refEl.dataType}
 					var r [][]float64
 					switch refEl.recType {
 					case 0x08:
