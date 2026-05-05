@@ -312,19 +312,67 @@ function copyYAML(e) {
     });
 
     var yaml = lines.join('\n');
-    navigator.clipboard.writeText(yaml).then(function() {
-        var btn = document.getElementById('copy-btn');
-        btn.textContent = 'Copied!';
-        btn.classList.add('copied');
-        setTimeout(function() {
-            btn.textContent = 'Copy YAML';
-            btn.classList.remove('copied');
-        }, 2000);
-    }).catch(function() {
-        var btn = document.getElementById('copy-btn');
+    copyToClipboard(yaml);
+}
+
+function copyToClipboard(text) {
+    var btn = document.getElementById('copy-btn');
+    // Try modern Clipboard API first
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(function() { btn.textContent = 'Copy YAML'; btn.classList.remove('copied'); }, 2000);
+        }).catch(function(err) {
+            console.error('Clipboard API failed:', err);
+            fallbackCopy(text, btn);
+        });
+    } else {
+        fallbackCopy(text, btn);
+    }
+}
+
+function fallbackCopy(text, btn) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+        var ok = document.execCommand('copy');
+        if (ok) {
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+        } else {
+            btn.textContent = 'Failed';
+        }
+    } catch (e) {
+        console.error('execCommand copy failed:', e);
         btn.textContent = 'Failed';
-        setTimeout(function() { btn.textContent = 'Copy YAML'; }, 2000);
-    });
+        // Last resort: show YAML in a prompt for manual copy
+        showYamlPrompt(text);
+    }
+    document.body.removeChild(ta);
+    setTimeout(function() { btn.textContent = 'Copy YAML'; btn.classList.remove('copied'); }, 2000);
+}
+
+function showYamlPrompt(text) {
+    // Show YAML in the console body as a selectable textarea
+    var body = document.getElementById('console-body');
+    var pre = document.createElement('div');
+    pre.style.cssText = 'background:#1e1e2e;padding:8px;border-radius:4px;margin-top:4px;white-space:pre-wrap;font:12px monospace;color:#cdd6f4;max-height:200px;overflow-y:auto;';
+    pre.textContent = text;
+    pre.setAttribute('contenteditable', 'false');
+    var note = document.createElement('p');
+    note.style.cssText = 'color:#f9e2af;font-size:11px;margin-top:4px;';
+    note.textContent = 'Auto-copy blocked by browser. Select the text above and Ctrl+C to copy.';
+    body.appendChild(pre);
+    body.appendChild(note);
+    setTimeout(function() {
+        if (pre.parentNode) pre.parentNode.removeChild(pre);
+        if (note.parentNode) note.parentNode.removeChild(note);
+    }, 15000);
 }
 
 // --- File list ---
