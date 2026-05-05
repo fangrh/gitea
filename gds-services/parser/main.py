@@ -27,9 +27,9 @@ def parse_gds(data: bytes) -> dict:
             if it.is_empty():
                 continue
             info = layout.layer_infos()[li]
-            ln = info.layer
-            if ln not in layers:
-                layers[ln] = []
+            key = (info.layer, info.datatype)
+            if key not in layers:
+                layers[key] = []
             region = kdb.Region(it)
             region.merge()
             for poly in region.each():
@@ -37,19 +37,19 @@ def parse_gds(data: bytes) -> dict:
                 ring = [[p.x * layout.dbu, p.y * layout.dbu] for p in pts.each_point()]
                 if len(ring) >= 3:
                     ring.append(ring[0])
-                    layers[ln].append([ring])
+                    layers[key].append([ring])
 
     features = []
     min_x = min_y = float("inf")
     max_x = max_y = float("-inf")
-    for ln, polys in layers.items():
+    for key, polys in layers.items():
         if not polys:
             continue
-        color = LAYER_COLORS[ln % len(LAYER_COLORS)]
+        color = LAYER_COLORS[key[0] % len(LAYER_COLORS)]
         features.append({
             "type": "Feature",
             "geometry": {"type": "MultiPolygon", "coordinates": polys},
-            "properties": {"layer": ln, "data_type": 0, "color": color},
+            "properties": {"layer": key[0], "data_type": key[1], "color": color},
         })
         for poly in polys:
             for ring in poly:
