@@ -59,7 +59,8 @@
 	var map = new ol.Map({
 		target: 'gds-map',
 		layers: [vectorLayer],
-		view: new ol.View({ center: [0, 0], zoom: 0, minZoom: -20, maxZoom: 40 })
+		view: new ol.View({ center: [0, 0], zoom: 0, minZoom: -20, maxZoom: 40 }),
+		controls: [new ol.control.Zoom()]
 	});
 	window._gdsMap = map;
 
