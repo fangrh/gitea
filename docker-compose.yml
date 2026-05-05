@@ -1,0 +1,99 @@
+networks:
+  gitea:
+    name: gitea
+    external: false
+
+volumes:
+  gitea-data:
+    name: gitea-data
+  postgres-data:
+    name: gitea-postgres-data
+
+services:
+  db:
+    image: docker.io/library/postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gitea
+      POSTGRES_PASSWORD: gitea
+      POSTGRES_DB: gitea
+    networks:
+      - gitea
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gitea -d gitea"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gitea:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TAGS: sqlite sqlite_unlock_notify
+    restart: unless-stopped
+    environment:
+      # App
+      APP_NAME: "Gitea"
+      RUN_MODE: prod
+
+      # Server
+      DOMAIN: localhost
+      SSH_DOMAIN: localhost
+      HTTP_PORT: "3000"
+      ROOT_URL: http://localhost:3000/
+      SSH_PORT: "22"
+      SSH_LISTEN_PORT: "22"
+      DISABLE_SSH: "false"
+      LFS_START_SERVER: "true"
+
+      # Database
+      DB_TYPE: postgres
+      DB_HOST: db:5432
+      DB_NAME: gitea
+      DB_USER: gitea
+      DB_PASSWD: gitea
+
+      # Security
+      INSTALL_LOCK: "false"
+      SECRET_KEY: change-me-to-a-random-string
+
+      # Service
+      DISABLE_REGISTRATION: "false"
+      REQUIRE_SIGNIN_VIEW: "false"
+
+      # User mapping
+      USER: git
+      USER_UID: "1000"
+      USER_GID: "1000"
+      GITEA__gds_viewer__PARSER_URL: "http://gds-parser:8000"
+    networks:
+      - gitea
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    volumes:
+      - gitea-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  gds-parser:
+    build:
+      context: ./gds-services/parser
+    restart: unless-stopped
+    networks:
+      - gitea
+    volumes:
+      - gitea-data:/data:ro
+
+  gds-builder:
+    build:
+      context: ./gds-services/builder
+    restart: unless-stopped
+    networks:
+      - gitea
+    volumes:
+      - gitea-data:/data
