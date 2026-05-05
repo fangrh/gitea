@@ -75,9 +75,55 @@ var params = new URLSearchParams(window.location.search);
 var repo = params.get('repo') || '';
 var branch = params.get('branch') || 'main';
 var currentFilePath = '';
-var selectedFeature = null;
-var currentProvenance = {};  // {file, line} for source tab
+var selectedFeatures = new ol.Collection();
+var ctrlPressed = false;
 var activeTab = 'info';
+var sourceCache = {};   // filePath -> source code string
+var expandedFiles = {}; // filePath -> true/false
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Control' || e.key === 'Meta') ctrlPressed = true;
+    if (e.key === 'Escape') clearSelection();
+});
+document.addEventListener('keyup', function(e) {
+    if (e.key === 'Control' || e.key === 'Meta') ctrlPressed = false;
+});
+
+function addToSelection(features) {
+    features.forEach(function(f) {
+        if (!selectedFeatures.getArray().includes(f)) {
+            selectedFeatures.push(f);
+            f.set('selected', true);
+        }
+    });
+}
+
+function removeFromSelection(features) {
+    features.forEach(function(f) {
+        selectedFeatures.remove(f);
+        f.set('selected', false);
+    });
+}
+
+function replaceSelection(features) {
+    selectedFeatures.forEach(function(f) { f.set('selected', false); });
+    selectedFeatures.clear();
+    features.forEach(function(f) {
+        selectedFeatures.push(f);
+        f.set('selected', true);
+    });
+}
+
+function clearSelection() {
+    selectedFeatures.forEach(function(f) { f.set('selected', false); });
+    selectedFeatures.clear();
+    vectorLayer.changed();
+    onSelectionChanged();
+}
+
+function onSelectionChanged() {
+    // Will be implemented in Task 4
+}
 
 // GDS coordinates are in micrometers (μm).  Prevent OpenLayers from
 // treating them as EPSG:4326 degrees and running them through the
