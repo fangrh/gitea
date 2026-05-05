@@ -622,36 +622,63 @@ function toggleConsole() {
 
 function copyYAML(e) {
     e.stopPropagation();
-    if (!selectedFeature) return;
+    var features = selectedFeatures.getArray();
+    if (features.length === 0) return;
 
-    var layer = selectedFeature.get('layer') || '?';
-    var provenance = selectedFeature.get('provenance') || {};
-    var meta = selectedFeature.get('meta') || {};
-    var bbox = (meta.bbox || []).map(function(v) { return v.toFixed(4); });
+    if (features.length === 1) {
+        var f = features[0];
+        var layer = f.get('layer') || '?';
+        var provenance = f.get('provenance') || {};
+        var meta = f.get('meta') || {};
+        var bbox = (meta.bbox || []).map(function(v) { return v.toFixed(4); });
 
-    var lines = [
-        'layer: ' + layer,
-        'area_um2: ' + (meta.area_um2 || ''),
-        'bbox: [' + bbox.join(', ') + ']',
-        'vertex_count: ' + (meta.vertex_count || ''),
-        'repo: ' + repo,
-        'ref: ' + branch,
-        'path: ' + currentFilePath
-    ];
+        var lines = [
+            'layer: ' + layer,
+            'area_um2: ' + (meta.area_um2 || ''),
+            'bbox: [' + bbox.join(', ') + ']',
+            'vertex_count: ' + (meta.vertex_count || ''),
+            'repo: ' + repo,
+            'ref: ' + branch,
+            'path: ' + currentFilePath
+        ];
 
-    if (Object.keys(provenance).length > 0) {
-        lines.push('');
-        if (provenance.instance_name) lines.push('instance_name: ' + provenance.instance_name);
-        if (provenance.cell) lines.push('cell: ' + provenance.cell);
-        if (provenance.file) lines.push('file: ' + provenance.file);
-        if (provenance.line) lines.push('line: ' + provenance.line);
-        if (provenance.function && provenance.function !== '<module>') lines.push('function: ' + provenance.function);
-        if (provenance.class_name) lines.push('class_name: ' + provenance.class_name);
-        if (provenance.call_index) lines.push('call_index: ' + provenance.call_index);
+        if (Object.keys(provenance).length > 0) {
+            lines.push('');
+            if (provenance.instance_name) lines.push('instance_name: ' + provenance.instance_name);
+            if (provenance.cell) lines.push('cell: ' + provenance.cell);
+            if (provenance.file) lines.push('file: ' + provenance.file);
+            if (provenance.line) lines.push('line: ' + provenance.line);
+            if (provenance.function && provenance.function !== '<module>') lines.push('function: ' + provenance.function);
+            if (provenance.class_name) lines.push('class_name: ' + provenance.class_name);
+            if (provenance.call_index) lines.push('call_index: ' + provenance.call_index);
+        }
+
+        copyToClipboard(lines.join('\n'));
+    } else {
+        var fileMap = {};
+        features.forEach(function(f) {
+            var prov = f.get('provenance') || {};
+            if (prov.file && prov.line) {
+                var fp = prov.file.replace(/\\/g, '/');
+                if (!fileMap[fp]) fileMap[fp] = [];
+                var ln = parseInt(prov.line);
+                if (fileMap[fp].indexOf(ln) === -1) fileMap[fp].push(ln);
+            }
+        });
+
+        var lines = ['modifications:'];
+        Object.keys(fileMap).sort().forEach(function(fp) {
+            var sorted = fileMap[fp].sort(function(a,b){return a-b;});
+            lines.push('  - file: ' + fp);
+            lines.push('    lines: [' + sorted.join(', ') + ']');
+        });
+
+        if (lines.length === 1) {
+            lines = ['# No provenance data in selection'];
+        }
+
+        copyToClipboard(lines.join('\n'));
     }
-
-    var yaml = lines.join('\n');
-    copyToClipboard(yaml);
 }
 
 function copyToClipboard(text) {
