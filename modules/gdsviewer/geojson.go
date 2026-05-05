@@ -8,45 +8,52 @@ import (
 	"math"
 )
 
-// ToScaledGeoJSON converts parsed GDS data to GeoJSON with coordinates scaled to microns.
+// ToScaledGeoJSON converts parsed GDS data to GeoJSON FeatureCollection.
+// Groups polygons by (layer, datatype). Handles SREF/AREF flattening.
 func (p *ParsedGDS) ToScaledGeoJSON() ([]byte, error) {
 	scale := p.Scale()
 	groups := make(map[[2]int16][][][][]float64)
 
 	for _, cell := range p.Cells {
 		for _, el := range cell.elements {
+			// SREF/AREF have 1 XY point (placement); BOUNDARY/PATH/BOX have 2+
 			if len(el.xy) < 2 && el.recType != 0x0A && el.recType != 0x0B {
 				continue
 			}
-			if len(el.xy) < 2 {
-				continue
-			}
-			key := [2]int16{el.layer, el.dataType}
 
 			switch el.recType {
 			case 0x08: // BOUNDARY
-				r := pointsToScaledCoords(el.xy, scale)
-				groups[key] = append(groups[key], [][][]float64{r})
+				groups[[2]int16{el.layer, el.dataType}] = append(
+					groups[[2]int16{el.layer, el.dataType}],
+					[][][]float64{pointsToScaledCoords(el.xy, scale)},
+				)
 
 			case 0x2D: // BOX
 				if r := boxToScaledCoords(el.xy, scale); r != nil {
-					groups[key] = append(groups[key], [][][]float64{r})
+					groups[[2]int16{el.layer, el.dataType}] = append(
+						groups[[2]int16{el.layer, el.dataType}],
+						[][][]float64{r},
+					)
 				}
 
 			case 0x09: // PATH
 				if len(el.xy) >= 2 {
 					halfW := float64(el.width) * scale / 2.0
 					if r := pathToScaledCoords(el.xy, scale, halfW); r != nil {
-						groups[key] = append(groups[key], [][][]float64{r})
+						groups[[2]int16{el.layer, el.dataType}] = append(
+							groups[[2]int16{el.layer, el.dataType}],
+							[][][]float64{r},
+						)
 					}
 				}
 
-			case 0x0A, 0x0B: // SREF, AREF
+			case 0x0A, 0x0B: // SREF, AREF — flatten referenced cell
 				refCell, ok := p.Cells[el.sname]
 				if !ok {
 					continue
 				}
-				dx, dy := float64(0), float64(0)
+				dx := float64(0)
+				dy := float64(0)
 				if len(el.xy) > 0 {
 					dx = float64(el.xy[0].X) * scale
 					dy = float64(el.xy[0].Y) * scale
@@ -77,6 +84,10 @@ func (p *ParsedGDS) ToScaledGeoJSON() ([]byte, error) {
 		}
 	}
 
+	return marshalGeoJSON(groups)
+}
+
+func marshalGeoJSON(groups map[[2]int16][][][][]float64) ([]byte, error) {
 	features := make([]map[string]interface{}, 0, len(groups))
 	minX, minY, maxX, maxY := math.MaxFloat64, math.MaxFloat64, -math.MaxFloat64, -math.MaxFloat64
 
@@ -170,13 +181,14 @@ func offsetScaledCoords(ring [][]float64, dx, dy float64) [][]float64 {
 }
 
 func (p *ParsedGDS) Scale() float64 {
-	// Convert GDS database units (nm) to EPSG:3857 visible meters.
-	// db→micron (×UnitDB) → meter (×1e-6) → rescale (×1e9) = ×1000
-	// Result: 1mm chip (1e6 db units) → 1000m in EPSG:3857 (visible at zoom 10+)
-	if p.UnitDB > 0 {
+	// GDS database units are typically nanometers (UnitDB=0.001).
+	// Some GDS writers produce anomalous UNITS records.
+	// Fall back to standard 0.001 (1 db unit = 1 nm = 0.001 µm).
+	const standardDBPerUserUnit = 0.001
+	if p.UnitDB > 0.00001 {
 		return p.UnitDB * 1000
 	}
-	return 1.0
+	return standardDBPerUserUnit * 1000 // = 1.0: 1nm → 1 EPSG:3857 unit
 }
 
 func layerColor(layer, _ int16) string {
