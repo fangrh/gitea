@@ -43,6 +43,15 @@ body { display: flex; height: 100vh; background: #1a1a2e; font-family: -apple-sy
 .src-line .ln { color: #585b70; min-width: 44px; text-align: right; padding-right: 12px; user-select: none; flex-shrink: 0; }
 .src-line .code { color: #cdd6f4; white-space: pre; overflow-x: auto; }
 .ol-dragbox { border: 2px dashed #89b4fa !important; background-color: rgba(137,180,250,0.1) !important; }
+.file-section { margin: 4px 0; border: 1px solid #313244; border-radius: 4px; }
+.file-section-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: #181825; cursor: pointer; user-select: none; font-size: 12px; }
+.file-section-header:hover { background: #1e1e2e; }
+.file-section-header .arrow { color: #585b70; font-size: 10px; transition: transform 0.15s; }
+.file-section-header .arrow.open { transform: rotate(90deg); }
+.file-section-header .fname { color: #89b4fa; }
+.file-section-header .lines { color: #6c7086; margin-left: auto; }
+.file-section-body { max-height: 0; overflow: hidden; transition: max-height 0.2s; }
+.file-section-body.open { max-height: 400px; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -185,6 +194,107 @@ function showMultiInspect(features) {
     addKV(panel, 'path', currentFilePath);
 
     updateMultiSourcePanel(fileMap);
+}
+
+function updateMultiSourcePanel(fileMap) {
+    var panel = document.getElementById('source-panel');
+    panel.innerHTML = '';
+
+    var fileKeys = Object.keys(fileMap);
+    if (fileKeys.length === 0) {
+        panel.innerHTML = '<p class="placeholder">No provenance data in selection</p>';
+        return;
+    }
+
+    fileKeys.forEach(function(fp) {
+        var section = document.createElement('div');
+        section.className = 'file-section';
+        section.setAttribute('data-file', fp);
+
+        var base = fp.split('/').pop();
+        var lines = fileMap[fp].sort(function(a,b){return a-b;});
+        var isOpen = expandedFiles[fp] || false;
+
+        var header = document.createElement('div');
+        header.className = 'file-section-header';
+        header.innerHTML = '<span class="arrow' + (isOpen ? ' open' : '') + '">&#9654;</span>'
+            + '<span class="fname">' + esc(base) + '</span>'
+            + '<span class="lines">lines [' + lines.join(', ') + ']</span>';
+
+        var body = document.createElement('div');
+        body.className = 'file-section-body' + (isOpen ? ' open' : '');
+
+        header.onclick = (function(filePath, bodyEl) {
+            return function() { toggleFileSection(filePath, bodyEl); };
+        })(fp, body);
+
+        if (isOpen) {
+            loadFileSource(fp, body, lines);
+        } else {
+            body.innerHTML = '';
+        }
+
+        section.appendChild(header);
+        section.appendChild(body);
+        panel.appendChild(section);
+    });
+}
+
+function toggleFileSection(filePath, bodyEl) {
+    var isOpen = expandedFiles[filePath] || false;
+    expandedFiles[filePath] = !isOpen;
+
+    var section = bodyEl.parentElement;
+    var arrow = section.querySelector('.arrow');
+    if (!isOpen) {
+        bodyEl.classList.add('open');
+        arrow.classList.add('open');
+        var linesText = section.querySelector('.lines').textContent;
+        var match = linesText.match(/\[(.+)\]/);
+        var lines = match ? match[1].split(', ').map(Number) : [];
+        loadFileSource(filePath, bodyEl, lines);
+    } else {
+        bodyEl.classList.remove('open');
+        arrow.classList.remove('open');
+    }
+}
+
+function loadFileSource(filePath, container, highlightLines) {
+    if (sourceCache[filePath]) {
+        renderSourceLines(sourceCache[filePath], container, highlightLines);
+        return;
+    }
+
+    container.innerHTML = '<p class="placeholder" style="padding:8px;">Loading...</p>';
+
+    var url = '/source?repo=' + encodeURIComponent(repo) + '&ref=' + branch
+        + '&path=' + encodeURIComponent(filePath);
+
+    fetch(url).then(function(r) {
+        if (!r.ok) throw Error('HTTP ' + r.status);
+        return r.text();
+    }).then(function(code) {
+        sourceCache[filePath] = code;
+        renderSourceLines(code, container, highlightLines);
+    }).catch(function(e) {
+        container.innerHTML = '<p class="placeholder">Failed to load source: ' + esc(e.message) + '</p>';
+    });
+}
+
+function renderSourceLines(code, container, highlightLines) {
+    var lines = code.split('\n');
+    var html = '';
+    for (var i = 0; i < lines.length; i++) {
+        var ln = i + 1;
+        var cls = highlightLines.indexOf(ln) !== -1 ? 'src-line hl' : 'src-line';
+        html += '<div class="' + cls + '"><span class="ln">' + ln + '</span><span class="code">' + esc(lines[i]) + '</span></div>';
+    }
+    container.innerHTML = html;
+
+    var firstHl = container.querySelector('.src-line.hl');
+    if (firstHl) {
+        firstHl.scrollIntoView({ block: 'center' });
+    }
 }
 
 // GDS coordinates are in micrometers (μm).  Prevent OpenLayers from
@@ -345,6 +455,8 @@ function loadGDS(filePath, retries) {
             source.clear();
             allFeatures = [];
             layerColors = {};
+            sourceCache = {};
+            expandedFiles = {};
             geojson.features.forEach(function(feature) {
                 var props = feature.properties || {};
                 var layerId = props.layer;
@@ -470,46 +582,6 @@ function switchTab(e, tab) {
     });
     document.getElementById('info-panel').style.display = tab === 'info' ? '' : 'none';
     document.getElementById('source-panel').style.display = tab === 'source' ? '' : 'none';
-    if (tab === 'source' && currentProvenance.file) {
-        loadSource();
-    }
-}
-
-function loadSource() {
-    var panel = document.getElementById('source-panel');
-    panel.innerHTML = '<p class="placeholder" style="padding:12px;">Loading...</p>';
-
-    // Normalize Windows backslash paths to forward slashes for git
-    var filePath = (currentProvenance.file || '').replace(/\\/g, '/');
-    var url = '/source?repo=' + encodeURIComponent(repo) + '&ref=' + branch
-        + '&path=' + encodeURIComponent(filePath);
-
-    fetch(url).then(function(r) {
-        if (!r.ok) throw Error('HTTP ' + r.status);
-        return r.text();
-    }).then(function(code) {
-        var lines = code.split('\n');
-        var targetLine = currentProvenance.line ? parseInt(currentProvenance.line) : -1;
-        var html = '';
-        for (var i = 0; i < lines.length; i++) {
-            var ln = i + 1;
-            var cls = (ln === targetLine) ? 'src-line hl' : 'src-line';
-            html += '<div class="' + cls + '"><span class="ln">' + ln + '</span><span class="code">' + esc(lines[i]) + '</span></div>';
-        }
-        panel.innerHTML = html;
-
-        // Auto-scroll to highlighted line
-        if (targetLine > 0) {
-            var hlEl = panel.querySelector('.src-line.hl');
-            if (hlEl) {
-                hlEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            }
-        }
-    }).catch(function(e) {
-        console.error('loadSource failed:', url, e);
-        panel.innerHTML = '<p class="placeholder">Failed to load source: ' + esc(e.message)
-            + '<br><small style="color:#6c7086;">' + esc(filePath) + '</small></p>';
-    });
 }
 
 function addKV(parent, key, val, hl) {
