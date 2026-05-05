@@ -475,17 +475,25 @@ fetch('/files?repo=' + encodeURIComponent(repo) + '&ref=' + branch)
             list.innerHTML = '<p style="color:#6c7086;font-size:13px;">No .gds files found.</p>';
             return;
         }
-        files.forEach(function(f) {
+        var firstProv = null, firstAny = null;
+        files.forEach(function(entry) {
             var div = document.createElement('div');
-            div.className = 'file-item'; div.textContent = f;
+            div.className = 'file-item';
+            var fname = typeof entry === 'string' ? entry : (entry.name || entry);
+            var hasProv = typeof entry === 'object' && entry.has_provenance;
+            div.textContent = fname;
+            if (hasProv) div.innerHTML += ' <span style="color:#a6e3a1;font-size:10px;" title="Has provenance">&#9679;</span>';
             div.onclick = function() {
                 document.querySelectorAll('.file-item.active').forEach(function(el) { el.classList.remove('active'); });
                 div.classList.add('active');
-                loadGDS(f);
+                loadGDS(fname);
             };
             list.appendChild(div);
+            if (hasProv && !firstProv) firstProv = div;
+            if (!firstAny) firstAny = div;
         });
-        setTimeout(function() { var el = document.querySelector('.file-item'); if (el) el.click(); }, 200);
+        var auto = firstProv || firstAny;
+        if (auto) setTimeout(function() { auto.click(); }, 200);
     }).catch(function(e) { console.error('File list failed: ' + e.message); });
 </script>
 </body>

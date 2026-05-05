@@ -160,11 +160,28 @@ def viewer():
     return FileResponse("viewer.html", media_type="text/html")
 
 
+def _has_provenance(gds_path: pathlib.Path) -> bool:
+    """Quick check if a GDS file has provenance TEXT on layer 255/255."""
+    try:
+        import klayout.db as kdb
+        layout = kdb.Layout()
+        layout.read(str(gds_path))
+        prov_li = layout.layer(255, 255)
+        if prov_li is None:
+            return False
+        for ci in range(layout.cells()):
+            if not layout.cell(ci).shapes(prov_li).is_empty():
+                return True
+        return False
+    except Exception:
+        return False
+
+
 @app.get("/files")
 def list_files(repo: str, ref: str = "main"):
     owner, name = repo.split("/")
     repo_dir = pathlib.Path(f"/data/git/repositories/{owner.lower()}/{name.lower()}.git")
-    files = []
+    entries = []  # list of {name, has_provenance}
     seen = set()
 
     # From git
@@ -177,19 +194,23 @@ def list_files(repo: str, ref: str = "main"):
             for f in result.stdout.splitlines():
                 f = f.strip()
                 if f.endswith(".gds"):
-                    files.append(f)
+                    # Check if cache version exists (and has provenance)
+                    cache_file = BUILD_CACHE / owner.lower() / name.lower() / ref / f
+                    has_prov = _has_provenance(cache_file) if cache_file.exists() else False
+                    entries.append({"name": f, "has_provenance": has_prov})
                     seen.add(f)
 
-    # From build cache
+    # From build cache (files not in git)
     cache_dir = BUILD_CACHE / owner.lower() / name.lower() / ref
     if cache_dir.exists():
         for gds in cache_dir.rglob("*.gds"):
             rel = str(gds.relative_to(cache_dir)).replace("\\", "/")
             if rel not in seen:
-                files.append(rel)
+                has_prov = _has_provenance(gds)
+                entries.append({"name": rel, "has_provenance": has_prov})
                 seen.add(rel)
 
-    return files
+    return entries
 
 
 @app.get("/data")
