@@ -43,7 +43,7 @@ def parse_gds(data: bytes) -> dict:
         region.merge()
         for poly in region.each():
             pts = poly.to_simple_polygon()
-            ring = [[p.x * layout.dbu, p.y * layout.dbu] for p in pts.each_point()]
+            ring = [[p.x * 0.001, p.y * 0.001] for p in pts.each_point()]
             if len(ring) >= 3:
                 ring.append(ring[0])
                 layers[key].append([ring])
