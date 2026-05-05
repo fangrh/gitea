@@ -154,6 +154,12 @@ document.addEventListener('keydown', function(e) {
         }
         clearSelection();
     }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedFeatures.getArray().some(function(f) { return f.get('isDrawn'); })) {
+            e.preventDefault();
+            deleteDrawn();
+        }
+    }
 });
 document.addEventListener('keyup', function(e) {
     if (e.key === 'Control' || e.key === 'Meta') ctrlPressed = false;
@@ -214,6 +220,17 @@ function setMode(mode) {
         if (btn.dataset.mode === 'snap' || btn.dataset.mode === 'delete') return;
         btn.classList.toggle('active', btn.dataset.mode === mode);
     });
+}
+
+function deleteDrawn() {
+    var drawn = selectedFeatures.getArray().filter(function(f) { return f.get('isDrawn'); });
+    if (drawn.length === 0) return;
+    drawn.forEach(function(f) {
+        selectedFeatures.remove(f);
+        drawSource.removeFeature(f);
+    });
+    drawLayer.changed();
+    onSelectionChanged();
 }
 
 function onSelectionChanged() {
