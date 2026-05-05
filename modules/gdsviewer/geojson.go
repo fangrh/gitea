@@ -208,14 +208,11 @@ func offsetScaledCoords(ring [][]float64, dx, dy float64) [][]float64 {
 }
 
 func (p *ParsedGDS) Scale() float64 {
-	// GDS database units are typically nanometers (UnitDB=0.001).
-	// Some GDS writers produce anomalous UNITS records.
-	// Fall back to standard 0.001 (1 db unit = 1 nm = 0.001 µm).
+	// GDS coordinate scaling for visible EPSG:3857 rendering.
+	// The fork's UNITS records are broken — use standard 0.001 (nm→µm).
+	// Multiply by 1000 for EPSG:3857 visibility: 1nm → 0.001 map unit.
 	const standardDBPerUserUnit = 0.001
-	if p.UnitDB > 0.00001 {
-		return p.UnitDB * 1000
-	}
-	return standardDBPerUserUnit * 1000 // = 1.0: 1nm → 1 EPSG:3857 unit
+	return standardDBPerUserUnit * 1000 // = 1.0
 }
 
 func layerColor(layer, _ int16) string {
