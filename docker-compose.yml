@@ -100,3 +100,14 @@ services:
       - gitea
     volumes:
       - gitea-data:/data
+
+  agent-scheduler:
+    build:
+      context: ./agent-services/scheduler
+    restart: unless-stopped
+    networks:
+      - gitea
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - gitea-data:/data
