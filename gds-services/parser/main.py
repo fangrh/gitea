@@ -1,8 +1,10 @@
 """GDS Parser Service — parses .gds files into GeoJSON using klayout."""
 import io
 import json
+import pathlib
+import subprocess
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 
 app = FastAPI(title="gds-parser")
 
@@ -86,3 +88,39 @@ async def parse_gds_post(request: Request):
     except Exception as e:
         raise HTTPException(422, f"Parse error: {e}")
     return Response(content=json.dumps(geojson), media_type="application/json")
+
+
+@app.get("/viewer")
+def viewer():
+    return FileResponse("viewer.html", media_type="text/html")
+
+
+@app.get("/files")
+def list_files(repo: str, ref: str = "main"):
+    owner, name = repo.split("/")
+    repo_dir = pathlib.Path(f"/data/git/repositories/{owner.lower()}/{name.lower()}.git")
+    if not repo_dir.exists():
+        raise HTTPException(404, f"Repo not found: {repo}")
+    result = subprocess.run(
+        ["git", "--git-dir", str(repo_dir), "ls-tree", "-r", "--name-only", ref],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return []
+    files = [f.strip() for f in result.stdout.splitlines() if f.strip().endswith(".gds")]
+    return files
+
+
+@app.get("/data")
+def get_gds_data(repo: str, ref: str = "main", path: str = ""):
+    owner, name = repo.split("/")
+    repo_dir = pathlib.Path(f"/data/git/repositories/{owner.lower()}/{name.lower()}.git")
+    if not repo_dir.exists():
+        raise HTTPException(404, f"Repo not found: {repo}")
+    result = subprocess.run(
+        ["git", "--git-dir", str(repo_dir), "show", f"{ref}:{path}"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise HTTPException(404, f"File not found: {path}")
+    return Response(content=json.dumps(parse_gds(result.stdout)), media_type="application/json")
