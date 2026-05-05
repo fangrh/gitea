@@ -59,23 +59,37 @@ def _run_build(design_path: str, workspace: pathlib.Path) -> subprocess.Complete
     )
 
 
+def _snapshot_gds(workspace: pathlib.Path) -> dict[str, float]:
+    """Return {relative_path: mtime} for all .gds files in workspace."""
+    snap = {}
+    for gds in workspace.rglob("*.gds"):
+        rel = str(gds.relative_to(workspace))
+        snap[rel] = gds.stat().st_mtime
+    return snap
+
+
 def _collect_and_cache(
     workspace: pathlib.Path,
     owner: str,
     repo: str,
     ref: str,
+    before: dict[str, float],
 ) -> list[str]:
-    """Copy .gds files from workspace to build cache. Return relative paths."""
+    """Copy NEW or MODIFIED .gds files to build cache. *before* is a pre-build
+    snapshot from ``_snapshot_gds()``; files whose path+mtime match are skipped
+    (they were extracted from git and are stale).
+    """
     cache_dir = BUILD_CACHE / owner.lower() / repo.lower() / ref
-    gds_files = list(workspace.rglob("*.gds"))
     cached = []
-    for gds in gds_files:
-        # Preserve relative path structure from workspace
-        rel = gds.relative_to(workspace)
+    for gds in workspace.rglob("*.gds"):
+        rel = str(gds.relative_to(workspace))
+        # Skip files that already existed with same mtime (pre-built, from git)
+        if rel in before and gds.stat().st_mtime == before[rel]:
+            continue
         dest = cache_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(gds, dest)
-        cached.append(str(rel))
+        cached.append(rel)
     return cached
 
 
@@ -93,6 +107,7 @@ def do_build(owner: str, repo: str, design: str, ref: str = "main") -> dict:
         if not (ws / design).exists():
             raise HTTPException(404, f"Design file not found in repo: {design}")
 
+        gds_before = _snapshot_gds(ws)
         result = _run_build(design, ws)
 
         stdout_tail = result.stdout[-3000:] if result.stdout else ""
@@ -109,7 +124,7 @@ def do_build(owner: str, repo: str, design: str, ref: str = "main") -> dict:
                 "built_files": [],
             }
 
-        cached = _collect_and_cache(ws, owner, repo, ref)
+        cached = _collect_and_cache(ws, owner, repo, ref, gds_before)
         return {
             "status": "ok",
             "design": design,
