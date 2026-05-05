@@ -8,6 +8,7 @@ var (
 	GDSViewer = struct {
 		Enabled   bool
 		IframeURL string
+		ParserURL string
 	}{
 		Enabled: false,
 	}
@@ -20,4 +21,5 @@ func loadGDSViewerFrom(rootCfg ConfigProvider) {
 	}
 	GDSViewer.Enabled = sec.Key("ENABLED").MustBool(false)
 	GDSViewer.IframeURL = sec.Key("IFRAME_URL").MustString("")
+	GDSViewer.ParserURL = sec.Key("PARSER_URL").MustString("http://gds-parser:8000")
 }

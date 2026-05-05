@@ -6,11 +6,11 @@ package repo
 import (
 	"encoding/json"
 	"html/template"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
 
-	"code.gitea.io/gitea/modules/gdsviewer"
 	"code.gitea.io/gitea/modules/setting"
 	giteaTemplates "code.gitea.io/gitea/modules/templates"
 	"code.gitea.io/gitea/services/context"
@@ -46,7 +46,7 @@ func GDSViewer(ctx *context.Context) {
 	ctx.HTML(http.StatusOK, tplGDSViewer)
 }
 
-// GDSViewerData serves GDS file geometry as GeoJSON
+// GDSViewerData proxies GDS geometry requests to the gds-parser service
 func GDSViewerData(ctx *context.Context) {
 	if !setting.GDSViewer.Enabled {
 		ctx.NotFound(nil)
@@ -76,27 +76,27 @@ func GDSViewerData(ctx *context.Context) {
 		return
 	}
 
-	data, err := blob.GetBlobBytes(100 * 1024 * 1024) // 100MB limit
+	reader, err := blob.DataAsync()
 	if err != nil {
-		ctx.ServerError("GetBlobBytes", err)
+		ctx.ServerError("DataAsync", err)
 		return
 	}
+	defer reader.Close()
 
-	parsed, err := gdsviewer.ParseGDS(strings.NewReader(string(data)))
+	resp, err := http.Post(setting.GDSViewer.ParserURL+"/parse", "application/octet-stream", reader)
 	if err != nil {
-		ctx.JSON(http.StatusUnprocessableEntity, map[string]string{"error": "failed to parse GDS file: " + err.Error()})
+		ctx.ServerError("gds-parser unreachable", err)
 		return
 	}
+	defer resp.Body.Close()
 
-	geoJSON, err := parsed.ToScaledGeoJSON()
-	if err != nil {
-		ctx.ServerError("ToGeoJSON", err)
-		return
+	for k, vs := range resp.Header {
+		for _, v := range vs {
+			ctx.Resp.Header().Set(k, v)
+		}
 	}
-
-	ctx.Resp.Header().Set("Content-Type", "application/json")
-	ctx.Resp.WriteHeader(http.StatusOK)
-	ctx.Resp.Write(geoJSON)
+	ctx.Resp.WriteHeader(resp.StatusCode)
+	io.Copy(ctx.Resp, resp.Body)
 }
 
 func listGDSFiles(ctx *context.Context) []string {
