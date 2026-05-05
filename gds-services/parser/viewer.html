@@ -160,6 +160,12 @@ document.addEventListener('keydown', function(e) {
             deleteDrawn();
         }
     }
+    if (e.key === '1') setMode('select');
+    if (e.key === '2') setMode('rectangle');
+    if (e.key === '3') setMode('circle');
+    if (e.key === '4') setMode('line');
+    if (e.key === '5') setMode('polygon');
+    if ((e.key === 's' || e.key === 'S') && !e.ctrlKey && !e.metaKey) toggleSnap();
 });
 document.addEventListener('keyup', function(e) {
     if (e.key === 'Control' || e.key === 'Meta') ctrlPressed = false;
