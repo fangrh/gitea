@@ -79,6 +79,14 @@ var selectedFeature = null;
 var currentProvenance = {};  // {file, line} for source tab
 var activeTab = 'info';
 
+// GDS coordinates are in micrometers (μm).  Prevent OpenLayers from
+// treating them as EPSG:4326 degrees and running them through the
+// Web-Mercator forward transform, which distorts and clips small values.
+var gdsGeoJsonFmt = new ol.format.GeoJSON({
+    dataProjection: 'EPSG:3857',
+    featureProjection: 'EPSG:3857',
+});
+
 var source = new ol.source.Vector();
 
 // Highlight style for selected feature
@@ -105,7 +113,7 @@ var vectorLayer = new ol.layer.Vector({
 var map = new ol.Map({
     target: 'map',
     layers: [vectorLayer],
-    view: new ol.View({ center: [0, 0], zoom: 0, minZoom: -20, maxZoom: 40 }),
+    view: new ol.View({ center: [0, 0], zoom: 2, minZoom: -20, maxZoom: 40 }),
     controls: [new ol.control.Zoom()]
 });
 
@@ -138,8 +146,6 @@ selectClick.on('select', function(e) {
 
 var allFeatures = [];
 var layerColors = {};
-var allProvenance = {};  // global provenance by cell name
-
 function fitView() {
     var extent = source.getExtent();
     if (extent && isFinite(extent[0])) {
@@ -163,6 +169,12 @@ function loadGDS(filePath, retries) {
                 }
                 return null;
             }
+            if (r.status === 404 && retries === 0) {
+                // File not found on first attempt — retry with poll to trigger build
+                showBuilding(1);
+                setTimeout(function() { loadGDS(filePath, 1); }, 2000);
+                return null;
+            }
             if (!r.ok) throw Error('HTTP ' + r.status);
             return r.json();
         })
@@ -172,38 +184,28 @@ function loadGDS(filePath, retries) {
             source.clear();
             allFeatures = [];
             layerColors = {};
-            allProvenance = {};
             geojson.features.forEach(function(feature) {
-                var layerId = feature.properties.layer;
-                var dataType = feature.properties.data_type;
-                var color = feature.properties.color;
+                var props = feature.properties || {};
+                var layerId = props.layer;
+                var dataType = props.data_type;
+                var color = props.color;
                 var key = layerId + '/' + dataType;
                 layerColors[key] = color;
-                // Merge global provenance
-                var provByCell = feature.properties.provenance_by_cell;
-                if (provByCell) {
-                    for (var cn in provByCell) {
-                        if (provByCell.hasOwnProperty(cn)) allProvenance[cn] = provByCell[cn];
-                    }
-                }
-                var polys = feature.geometry.coordinates;
-                polys.forEach(function(polygon) {
-                    polygon.forEach(function(ring) {
-                        var geom = new ol.geom.Polygon([ring]);
-                        var f = new ol.Feature({ geometry: geom });
-                        f.set('layer', key);
-                        f.set('color', color);
-                        f.set('layerKey', key);
-                        f.set('visible', true);
-                        f.set('selected', false);
-                        // Attach provenance for this layer
-                        f.set('provByCell', provByCell || {});
-                        // Polygon metadata
-                        f.set('meta', polyMeta(ring));
-                        allFeatures.push(f);
-                        source.addFeature(f);
-                    });
+                var geom = gdsGeoJsonFmt.readGeometry(feature.geometry);
+                var f = new ol.Feature({ geometry: geom });
+                f.set('layer', key);
+                f.set('color', color);
+                f.set('layerKey', key);
+                f.set('visible', true);
+                f.set('selected', false);
+                f.set('provenance', props.provenance || {});
+                f.set('meta', {
+                    area_um2: props.area_um2,
+                    vertex_count: props.vertex_count,
+                    bbox: props.bbox || []
                 });
+                allFeatures.push(f);
+                source.addFeature(f);
             });
             if (allFeatures.length > 0) fitView();
             clearInspect();
@@ -255,7 +257,7 @@ function buildLegend() {
 
 function showInspect(feature) {
     var layer = feature.get('layer') || '?';
-    var provByCell = feature.get('provByCell') || {};
+    var provenance = feature.get('provenance') || {};
     var meta = feature.get('meta') || {};
     var bbox = meta.bbox || [];
 
@@ -268,17 +270,14 @@ function showInspect(feature) {
     addKV(d, 'bbox', '[' + bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']');
     addKV(d, 'vertices', String(meta.vertex_count || '?'));
 
-    var cellNames = Object.keys(provByCell);
-    if (cellNames.length > 0) {
+    if (Object.keys(provenance).length > 0) {
         addSep(d);
-        cellNames.forEach(function(cn) {
-            var p = provByCell[cn];
-            addKV(d, 'cell', cn, true);
-            if (p.file) addKV(d, 'file', p.file + ':' + p.line);
-            if (p.function && p.function !== '<module>') addKV(d, 'function', p.function + '()');
-            if (p.class_name) addKV(d, 'class', p.class_name);
-            if (p.call_index) addKV(d, 'call_index', String(p.call_index));
-        });
+        if (provenance.instance_name) addKV(d, 'instance', provenance.instance_name, true);
+        if (provenance.cell) addKV(d, 'cell', provenance.cell);
+        if (provenance.file) addKV(d, 'file', provenance.file + ':' + provenance.line);
+        if (provenance.function && provenance.function !== '<module>') addKV(d, 'function', provenance.function + '()');
+        if (provenance.class_name) addKV(d, 'class', provenance.class_name);
+        if (provenance.call_index) addKV(d, 'call_index', String(provenance.call_index));
     }
 
     addSep(d);
@@ -288,9 +287,8 @@ function showInspect(feature) {
     panel.appendChild(d);
 
     // Store first provenance entry for source tab
-    var firstCell = cellNames[0];
-    if (firstCell && provByCell[firstCell].file) {
-        currentProvenance = provByCell[firstCell];
+    if (provenance.file) {
+        currentProvenance = provenance;
     } else {
         currentProvenance = {};
     }
@@ -404,7 +402,7 @@ function copyYAML(e) {
     if (!selectedFeature) return;
 
     var layer = selectedFeature.get('layer') || '?';
-    var provByCell = selectedFeature.get('provByCell') || {};
+    var provenance = selectedFeature.get('provenance') || {};
     var meta = selectedFeature.get('meta') || {};
     var bbox = (meta.bbox || []).map(function(v) { return v.toFixed(4); });
 
@@ -418,16 +416,16 @@ function copyYAML(e) {
         'path: ' + currentFilePath
     ];
 
-    Object.keys(provByCell).forEach(function(cn) {
-        var p = provByCell[cn];
+    if (Object.keys(provenance).length > 0) {
         lines.push('');
-        lines.push('cell: ' + cn);
-        if (p.file) lines.push('file: ' + p.file);
-        if (p.line) lines.push('line: ' + p.line);
-        if (p.function && p.function !== '<module>') lines.push('function: ' + p.function);
-        if (p.class_name) lines.push('class_name: ' + p.class_name);
-        if (p.call_index) lines.push('call_index: ' + p.call_index);
-    });
+        if (provenance.instance_name) lines.push('instance_name: ' + provenance.instance_name);
+        if (provenance.cell) lines.push('cell: ' + provenance.cell);
+        if (provenance.file) lines.push('file: ' + provenance.file);
+        if (provenance.line) lines.push('line: ' + provenance.line);
+        if (provenance.function && provenance.function !== '<module>') lines.push('function: ' + provenance.function);
+        if (provenance.class_name) lines.push('class_name: ' + provenance.class_name);
+        if (provenance.call_index) lines.push('call_index: ' + provenance.call_index);
+    }
 
     var yaml = lines.join('\n');
     copyToClipboard(yaml);
@@ -509,12 +507,15 @@ fetch('/files?repo=' + encodeURIComponent(repo) + '&ref=' + branch)
             div.className = 'file-item';
             var fname = typeof entry === 'string' ? entry : (entry.name || entry);
             var hasProv = typeof entry === 'object' && entry.has_provenance;
+            var isBuilding = typeof entry === 'object' && entry.building;
             div.textContent = fname;
             if (hasProv) div.innerHTML += ' <span style="color:#a6e3a1;font-size:10px;" title="Has provenance">&#9679;</span>';
+            if (isBuilding) div.innerHTML += ' <span style="color:#f9e2af;font-size:10px;" title="Building...">&#9676;</span>';
             div.onclick = function() {
                 document.querySelectorAll('.file-item.active').forEach(function(el) { el.classList.remove('active'); });
                 div.classList.add('active');
-                loadGDS(fname);
+                // If file is building, start polling immediately
+                loadGDS(fname, isBuilding ? 1 : 0);
             };
             list.appendChild(div);
             if (hasProv && !firstProv) firstProv = div;

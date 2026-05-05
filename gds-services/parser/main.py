@@ -18,6 +18,8 @@ LAYER_COLORS = [
 
 
 PROVENANCE_LAYER = (255, 255)
+PLACEMENT_PROP_KEY = 1004
+INSTANCE_PROP_KEY = 1005
 
 
 def _extract_provenance(layout) -> dict[str, dict]:
@@ -57,6 +59,93 @@ def _polygon_metadata(ring):
     }
 
 
+def _parse_json_property(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _shape_to_ring(shape, itrans, dbu):
+    import klayout.db as kdb
+
+    polygon = None
+    if shape.is_polygon():
+        polygon = shape.polygon
+    elif shape.is_box():
+        polygon = kdb.Polygon(shape.box)
+    elif shape.is_path():
+        polygon = shape.path.polygon()
+
+    if polygon is None:
+        return None
+
+    pts = polygon.transformed(itrans).to_simple_polygon()
+    ring = [[p.x * dbu, p.y * dbu] for p in pts.each_point()]
+    if len(ring) < 3:
+        return None
+    ring.append(ring[0])
+    return ring
+
+
+def _get_instance_name(iterator):
+    try:
+        path = iterator.path()
+    except Exception:
+        return None
+    if not path:
+        return None
+    try:
+        return path[-1].inst().property(0)
+    except Exception:
+        return None
+
+
+def _get_feature_provenance(iterator, provenance_by_cell):
+    prov = None
+    instance_name = _get_instance_name(iterator)
+
+    try:
+        path = iterator.path()
+    except Exception:
+        path = []
+    if path:
+        try:
+            prov = _parse_json_property(path[-1].inst().property(INSTANCE_PROP_KEY))
+        except Exception:
+            prov = None
+
+    if prov is None:
+        try:
+            prov = _parse_json_property(iterator.shape().property(PLACEMENT_PROP_KEY))
+        except Exception:
+            prov = None
+
+    try:
+        cell_name = iterator.cell().name
+    except Exception:
+        cell_name = None
+
+    if prov is None and cell_name:
+        prov = provenance_by_cell.get(cell_name)
+
+    if prov is None:
+        prov = {}
+    else:
+        prov = dict(prov)
+
+    if instance_name:
+        prov["instance_name"] = instance_name
+    if cell_name and "cell" not in prov:
+        prov["cell"] = cell_name
+
+    return prov or None
+
+
 def parse_gds(data: bytes) -> dict:
     """Parse GDSII binary and return GeoJSON FeatureCollection."""
     import tempfile, os
@@ -72,8 +161,10 @@ def parse_gds(data: bytes) -> dict:
 
     provenance_by_cell = _extract_provenance(layout)
 
-    layers = {}
     top = layout.top_cell()
+    features = []
+    min_x = min_y = float("inf")
+    max_x = max_y = float("-inf")
     for li in layout.layer_indexes():
         info = layout.layer_infos()[li]
         if (info.layer, info.datatype) == PROVENANCE_LAYER:
@@ -81,55 +172,30 @@ def parse_gds(data: bytes) -> dict:
         it = top.begin_shapes_rec(li)
         if it.at_end():
             continue
-        key = (info.layer, info.datatype)
-        if key not in layers:
-            layers[key] = {"polys": [], "provenance_by_cell": {}}
-        region = kdb.Region(it)
-        region.merge()
-        for poly in region.each():
-            pts = poly.to_simple_polygon()
-            ring = [[p.x * 0.001, p.y * 0.001] for p in pts.each_point()]
-            if len(ring) >= 3:
-                ring.append(ring[0])
-                layers[key]["polys"].append([ring])
-
-    # Find which cells contribute to which layers
-    for ci in range(layout.cells()):
-        cell = layout.cell(ci)
-        if not cell.name:
-            continue
-        cell_prov = provenance_by_cell.get(cell.name)
-        for li in layout.layer_indexes():
-            linfo = layout.layer_infos()[li]
-            if (linfo.layer, linfo.datatype) == PROVENANCE_LAYER:
-                continue
-            if cell.shapes(li).is_empty():
-                continue
-            key = (linfo.layer, linfo.datatype)
-            if key in layers and cell_prov:
-                layers[key]["provenance_by_cell"][cell.name] = cell_prov
-
-    features = []
-    min_x = min_y = float("inf")
-    max_x = max_y = float("-inf")
-    for key, entry in layers.items():
-        polys = entry["polys"]
-        if not polys:
-            continue
-        color = LAYER_COLORS[key[0] % len(LAYER_COLORS)]
-        properties = {"layer": key[0], "data_type": key[1], "color": color}
-        if entry["provenance_by_cell"]:
-            properties["provenance_by_cell"] = entry["provenance_by_cell"]
-        features.append({
-            "type": "Feature",
-            "geometry": {"type": "MultiPolygon", "coordinates": polys},
-            "properties": properties,
-        })
-        for poly in polys:
-            for ring in poly:
+        color = LAYER_COLORS[info.layer % len(LAYER_COLORS)]
+        while not it.at_end():
+            ring = _shape_to_ring(it.shape(), it.itrans(), layout.dbu)
+            if ring is not None:
+                properties = {
+                    "layer": info.layer,
+                    "data_type": info.datatype,
+                    "color": color,
+                    **_polygon_metadata(ring),
+                }
+                provenance = _get_feature_provenance(it, provenance_by_cell)
+                if provenance:
+                    properties["provenance"] = provenance
+                features.append({
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": [ring]},
+                    "properties": properties,
+                })
                 for x, y in ring:
-                    min_x = min(min_x, x); max_x = max(max_x, x)
-                    min_y = min(min_y, y); max_y = max(max_y, y)
+                    min_x = min(min_x, x)
+                    max_x = max(max_x, x)
+                    min_y = min(min_y, y)
+                    max_y = max(max_y, y)
+            it.next()
 
     result = {"type": "FeatureCollection", "features": features}
     if features:
@@ -191,7 +257,8 @@ def list_files(repo: str, ref: str = "main"):
             capture_output=True, text=True,
         )
         if result.returncode == 0:
-            for f in result.stdout.splitlines():
+            git_files = result.stdout.splitlines()
+            for f in git_files:
                 f = f.strip()
                 if f.endswith(".gds"):
                     # Check if cache version exists (and has provenance)
@@ -199,6 +266,24 @@ def list_files(repo: str, ref: str = "main"):
                     has_prov = _has_provenance(cache_file) if cache_file.exists() else False
                     entries.append({"name": f, "has_provenance": has_prov})
                     seen.add(f)
+
+            # Auto-build: if no .gds files found in git or cache, but repo has
+            # a Snakefile + designs/, trigger a build and list expected outputs.
+            has_snakefile = any(l.strip() == "Snakefile" for l in git_files)
+            has_designs = any(l.strip().startswith("designs/") and l.strip().endswith(".py") for l in git_files)
+            cache_dir = BUILD_CACHE / owner.lower() / name.lower() / ref
+
+            if not entries and not cache_dir.exists() and has_snakefile and has_designs:
+                # List expected GDS outputs based on design scripts
+                for l in git_files:
+                    l = l.strip()
+                    if l.startswith("designs/") and l.endswith(".py"):
+                        stem = pathlib.Path(l).stem
+                        gds_path = f"gds/{stem}.gds"
+                        if gds_path not in seen:
+                            entries.append({"name": gds_path, "has_provenance": False, "building": True})
+                            seen.add(gds_path)
+                _trigger_build(owner, name, ref)
 
     # From build cache (files not in git)
     cache_dir = BUILD_CACHE / owner.lower() / name.lower() / ref
@@ -238,16 +323,13 @@ def get_gds_data(repo: str, ref: str = "main", path: str = "", poll: bool = Fals
                 media_type="application/json",
             )
 
-    # Neither cache nor git — trigger a rebuild if poll is set
-    if poll:
-        _trigger_build(owner, name, ref)
-        return Response(
-            content=json.dumps({"status": "building"}),
-            media_type="application/json",
-            status_code=202,
-        )
-
-    raise HTTPException(404, f"File not found: {path}")
+    # Neither cache nor git — trigger a rebuild and poll
+    _trigger_build(owner, name, ref)
+    return Response(
+        content=json.dumps({"status": "building"}),
+        media_type="application/json",
+        status_code=202,
+    )
 
 
 def _trigger_build(owner: str, repo: str, ref: str):
