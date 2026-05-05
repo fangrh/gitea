@@ -220,17 +220,33 @@ function onSelectionChanged() {
     var features = selectedFeatures.getArray();
     var count = features.length;
 
+    var hasDrawn = count > 0 && features.some(function(f) { return f.get('isDrawn'); });
+    modifyInteraction.setActive(hasDrawn);
+    translateInteraction.setActive(hasDrawn);
+
     if (count === 0) {
         clearInspect();
         return;
     }
 
-    if (count === 1) {
-        showInspect(features[0]);
-        return;
-    }
+    var drawnFeatures = features.filter(function(f) { return f.get('isDrawn'); });
+    var gdsFeatures = features.filter(function(f) { return !f.get('isDrawn'); });
 
-    showMultiInspect(features);
+    if (drawnFeatures.length > 0 && gdsFeatures.length === 0) {
+        if (drawnFeatures.length === 1) {
+            showDrawnInspect(drawnFeatures[0]);
+        } else {
+            showDrawnMultiInspect(drawnFeatures);
+        }
+    } else if (drawnFeatures.length === 0) {
+        if (gdsFeatures.length === 1) {
+            showInspect(gdsFeatures[0]);
+        } else {
+            showMultiInspect(gdsFeatures);
+        }
+    } else {
+        showMixedInspect(gdsFeatures, drawnFeatures);
+    }
 }
 
 function showMultiInspect(features) {
@@ -548,6 +564,27 @@ Object.keys(drawInteractions).forEach(function(key) {
         setTimeout(function() { setMode('select'); }, 50);
     });
 });
+
+// Modify interaction for drawn shape vertices
+var modifyInteraction = new ol.interaction.Modify({
+    source: drawSource,
+    style: new ol.style.Style({
+        image: new ol.style.Circle({
+            radius: 5,
+            fill: new ol.style.Fill({ color: '#f38ba8' }),
+            stroke: new ol.style.Stroke({ color: '#ffffff', width: 1 })
+        })
+    })
+});
+modifyInteraction.setActive(false);
+map.addInteraction(modifyInteraction);
+
+// Translate interaction for moving drawn shapes
+var translateInteraction = new ol.interaction.Translate({
+    layers: [drawLayer]
+});
+translateInteraction.setActive(false);
+map.addInteraction(translateInteraction);
 
 var allFeatures = [];
 var layerColors = {};
