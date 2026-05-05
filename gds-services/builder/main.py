@@ -105,6 +105,7 @@ def _run_build(design_path: str, workspace: pathlib.Path) -> subprocess.Complete
     """
     env = os.environ.copy()
     env["GDS_PROJECT_ROOT"] = str(workspace)
+    env["GDS_PROVENANCE"] = "1"
     env["PYTHONPATH"] = str(workspace) + ":" + env.get("PYTHONPATH", "")
 
     snakefile = workspace / "Snakefile"
