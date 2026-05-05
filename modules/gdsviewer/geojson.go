@@ -15,6 +15,9 @@ func (p *ParsedGDS) ToScaledGeoJSON() ([]byte, error) {
 
 	for _, cell := range p.Cells {
 		for _, el := range cell.elements {
+			if len(el.xy) < 2 && el.recType != 0x0A && el.recType != 0x0B {
+				continue
+			}
 			if len(el.xy) < 2 {
 				continue
 			}
@@ -167,13 +170,13 @@ func offsetScaledCoords(ring [][]float64, dx, dy float64) [][]float64 {
 }
 
 func (p *ParsedGDS) Scale() float64 {
-	// Scale coordinates to visible range for OpenLayers EPSG:3857 rendering.
-	// GDS database units are nanometers; scaled coords need to be in ~meter range.
-	// Multiply by UnitDB (db→micron) then 1e6 (micron→meter), so 1nm→0.001m.
+	// Convert GDS database units (nm) to EPSG:3857 visible meters.
+	// db→micron (×UnitDB) → meter (×1e-6) → rescale (×1e9) = ×1000
+	// Result: 1mm chip (1e6 db units) → 1000m in EPSG:3857 (visible at zoom 10+)
 	if p.UnitDB > 0 {
-		return p.UnitDB * 1e3 // convert db units to millimeters (visible in EPSG:3857)
+		return p.UnitDB * 1000
 	}
-	return 1000.0 // fallback: assume 1 db unit = 1 µm, scale to mm
+	return 1.0
 }
 
 func layerColor(layer, _ int16) string {

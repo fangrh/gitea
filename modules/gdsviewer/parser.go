@@ -55,7 +55,12 @@ func (r *gdsRecord) float64At(offset int) float64 {
 }
 
 func (r *gdsRecord) str() string {
-	return string(r.data)
+	// GDS strings may be null-terminated or have trailing nulls; trim them
+	s := string(r.data)
+	for len(s) > 0 && s[len(s)-1] == 0 {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 type point struct{ X, Y int32 }

@@ -4,6 +4,7 @@
 	<div class="ui container" style="display:flex; flex-grow:1; width:100%; padding:0; min-height:0;">
 		<div id="gds-sidebar" style="width:220px; background:#1e1e2e; color:#cdd6f4; overflow-y:auto; padding:12px; flex-shrink:0;">
 			<h4 style="margin:0 0 8px 0; color:#89b4fa;">GDS Files</h4>
+			<button id="gds-fit-btn" onclick="if(window._gdsMap&&window._gdsSource){var e=window._gdsSource.getExtent();if(e&&isFinite(e[0]))window._gdsMap.getView().fit(e,{padding:[40,40,40,40],duration:300})}" style="width:100%;margin-bottom:8px;padding:4px 8px;background:#45475a;color:#cdd6f4;border:1px solid #585b70;border-radius:4px;cursor:pointer;font-size:12px;">Fit View</button>
 			{{if .GDSFiles}}
 			<div id="gds-file-list">
 				{{range $i, $f := .GDSFiles}}
@@ -29,6 +30,7 @@
 .gds-layer-legend { display:flex; align-items:center; gap:6px; padding:3px 0; font-size:12px; cursor:pointer; }
 .gds-layer-swatch { width:14px; height:14px; border-radius:2px; flex-shrink:0; }
 .gds-layer-swatch.hidden { opacity: 0.2; }
+#gds-fit-btn:hover { background: #585b70; }
 </style>
 <script nonce="{{ctx.CspScriptNonce}}">
 (function() {
@@ -39,6 +41,8 @@
 	var repoLink = '{{.RepoLink}}';
 
 	var source = new ol.source.Vector();
+	window._gdsSource = source;
+
 	var vectorLayer = new ol.layer.Vector({
 		source: source,
 		style: function(feature) {
@@ -46,75 +50,65 @@
 			var visible = feature.get('visible') !== false;
 			if (!visible) return new ol.style.Style({});
 			return new ol.style.Style({
-				stroke: new ol.style.Stroke({ color: color, width: 0.5 }),
+				stroke: new ol.style.Stroke({ color: color, width: 1 }),
 				fill: new ol.style.Fill({ color: color + '80' })
 			});
 		}
 	});
 
-	var view = new ol.View({ center: [0, 0], zoom: 2, maxZoom: 28 });
-	// Use view projection as data projection — coordinates are used as-is
-	view.on('change:resolution', function() {});
-
 	var map = new ol.Map({
 		target: 'gds-map',
 		layers: [vectorLayer],
-		view: view
+		view: new ol.View({ center: [0, 0], zoom: 0, minZoom: -20, maxZoom: 40 })
 	});
+	window._gdsMap = map;
 
 	var layerColors = {};
 	var allFeatures = [];
 
 	function loadGDS(filePath) {
 		var url = repoLink + '/gds/data/' + encodeURIComponent(filePath);
-		var xhr = new XMLHttpRequest();
-		xhr.open('GET', url, true);
-		xhr.onload = function() {
-			if (xhr.status !== 200) {
-				console.error('Load error: ' + xhr.status);
-				return;
-			}
+		fetch(url).then(function(r) {
+			if (!r.ok) { console.error('Load error: ' + r.status); return; }
+			return r.json();
+		}).then(function(geojson) {
+			if (!geojson) return;
 			source.clear();
 			allFeatures = [];
 			layerColors = {};
-			try {
-				var geojson = JSON.parse(xhr.responseText);
-				var bbox = geojson.bbox;
 
-				geojson.features.forEach(function(feature) {
-					var layerId = feature.properties.layer;
-					var dataType = feature.properties.data_type;
-					var color = feature.properties.color;
-					var key = layerId + '/' + dataType;
-					layerColors[key] = color;
+			geojson.features.forEach(function(feature) {
+				var layerId = feature.properties.layer;
+				var dataType = feature.properties.data_type;
+				var color = feature.properties.color;
+				var key = layerId + '/' + dataType;
+				layerColors[key] = color;
 
-					// MultiPolygon: coordinates[polygonIndex][ringIndex][pointIndex][x/y]
-					var polys = feature.geometry.coordinates;
-					polys.forEach(function(polygon) {
-						polygon.forEach(function(ring) {
-							var coords = ring.map(function(pt) { return [pt[0], pt[1]]; });
-							var geom = new ol.geom.Polygon([coords]);
-							var f = new ol.Feature({ geometry: geom });
-							f.set('layer', key);
-							f.set('color', color);
-							f.set('layerKey', key);
-							f.set('visible', true);
-							allFeatures.push(f);
-							source.addFeature(f);
-						});
+				var polys = feature.geometry.coordinates;
+				polys.forEach(function(polygon) {
+					polygon.forEach(function(ring) {
+						var geom = new ol.geom.Polygon([ring]);
+						var f = new ol.Feature({ geometry: geom });
+						f.set('layer', key);
+						f.set('color', color);
+						f.set('layerKey', key);
+						f.set('visible', true);
+						allFeatures.push(f);
+						source.addFeature(f);
 					});
 				});
+			});
 
-				if (bbox && bbox.length === 4) {
-					map.getView().fit(bbox, { padding: [40, 40, 40, 40], maxZoom: 18, duration: 300 });
+			if (allFeatures.length > 0) {
+				var extent = source.getExtent();
+				if (extent && isFinite(extent[0])) {
+					map.getView().fit(extent, { padding: [40, 40, 40, 40], duration: 300 });
 				}
-				buildLegend();
-			} catch(e) {
-				console.error('Parse error: ' + e.message, e);
 			}
-		};
-		xhr.onerror = function() { console.error('Failed to load ' + filePath); };
-		xhr.send();
+			buildLegend();
+		}).catch(function(e) {
+			console.error('Load failed: ' + e.message, e);
+		});
 	}
 
 	function buildLegend() {
