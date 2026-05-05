@@ -42,8 +42,16 @@ def _run_build(design_path: str, workspace: pathlib.Path) -> subprocess.Complete
     env = os.environ.copy()
     env["GDS_PROJECT_ROOT"] = str(workspace)
     env["PYTHONPATH"] = str(workspace) + ":" + env.get("PYTHONPATH", "")
+    # Wrap in python -c to auto-activate generic PDK, then use runpy so
+    # __file__ is set correctly for inspect.stack() provenance capture.
+    script_path = str(workspace / design_path)
+    wrapper = (
+        "import runpy, gdsfactory as gf; "
+        "gf.gpdk.PDK.activate(); "
+        f"runpy.run_path({script_path!r}, run_name='__main__')"
+    )
     return subprocess.run(
-        ["python", str(workspace / design_path)],
+        ["python", "-c", wrapper],
         cwd=str(workspace),
         capture_output=True, text=True,
         timeout=TIMEOUT,
