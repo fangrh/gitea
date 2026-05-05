@@ -1,3 +1,6 @@
 [submodule "gdsfactory"]
 	path = gdsfactory
 	url = D:/gds_argo/gdsfactory
+[submodule "gds-template"]
+	path = gds-template
+	url = ssh://git@localhost:2222/RuihuanFang/gds-template.git
