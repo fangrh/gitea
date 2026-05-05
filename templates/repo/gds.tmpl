@@ -39,28 +39,30 @@
 	var repoLink = '{{.RepoLink}}';
 
 	var source = new ol.source.Vector();
-	var layer = new ol.layer.Vector({
+	var vectorLayer = new ol.layer.Vector({
 		source: source,
 		style: function(feature) {
 			var color = feature.get('color') || '#ffffff';
 			var visible = feature.get('visible') !== false;
 			if (!visible) return new ol.style.Style({});
 			return new ol.style.Style({
-				stroke: new ol.style.Stroke({ color: color, width: 1 }),
-				fill: new ol.style.Fill({ color: color + '33' })
+				stroke: new ol.style.Stroke({ color: color, width: 0.5 }),
+				fill: new ol.style.Fill({ color: color + '80' })
 			});
 		}
 	});
 
-	var proj = new ol.proj.Projection({code: 'pixel', units: 'pixels', extent: [-1e9, -1e9, 1e9, 1e9]});
+	var view = new ol.View({ center: [0, 0], zoom: 2, maxZoom: 28 });
+	// Use view projection as data projection — coordinates are used as-is
+	view.on('change:resolution', function() {});
+
 	var map = new ol.Map({
 		target: 'gds-map',
-		layers: [layer],
-		view: new ol.View({ projection: proj, center: [0, 0], zoom: 2 })
+		layers: [vectorLayer],
+		view: view
 	});
 
 	var layerColors = {};
-	var layerNames = {};
 	var allFeatures = [];
 
 	function loadGDS(filePath) {
@@ -69,33 +71,42 @@
 		xhr.open('GET', url, true);
 		xhr.onload = function() {
 			if (xhr.status !== 200) {
-				console.error('Load error: ' + xhr.status + ' ' + xhr.responseText.substring(0, 200));
+				console.error('Load error: ' + xhr.status);
 				return;
 			}
 			source.clear();
 			allFeatures = [];
 			layerColors = {};
-			layerNames = {};
 			try {
 				var geojson = JSON.parse(xhr.responseText);
-				var features = new ol.format.GeoJSON().readFeatures(geojson, {
-					featureProjection: proj,
-					dataProjection: proj
-				});
-				features.forEach(function(f, i) {
-					var lid = f.get('layer');
-					var dt = f.get('data_type');
-					var color = f.get('color');
-					var key = lid + '/' + dt;
+				var bbox = geojson.bbox;
+
+				geojson.features.forEach(function(feature) {
+					var layerId = feature.properties.layer;
+					var dataType = feature.properties.data_type;
+					var color = feature.properties.color;
+					var key = layerId + '/' + dataType;
 					layerColors[key] = color;
-					layerNames[key] = 'L' + lid + '/' + dt + ' (' + features.length + ' elements)';
-					allFeatures.push(f);
-					f.set('layerKey', key);
-					f.set('visible', true);
-					source.addFeature(f);
+
+					// MultiPolygon: coordinates[polygonIndex][ringIndex][pointIndex][x/y]
+					var polys = feature.geometry.coordinates;
+					polys.forEach(function(polygon) {
+						polygon.forEach(function(ring) {
+							var coords = ring.map(function(pt) { return [pt[0], pt[1]]; });
+							var geom = new ol.geom.Polygon([coords]);
+							var f = new ol.Feature({ geometry: geom });
+							f.set('layer', key);
+							f.set('color', color);
+							f.set('layerKey', key);
+							f.set('visible', true);
+							allFeatures.push(f);
+							source.addFeature(f);
+						});
+					});
 				});
-				if (features.length > 0) {
-					map.getView().fit(source.getExtent(), { padding: [40, 40, 40, 40], maxZoom: 18, duration: 300 });
+
+				if (bbox && bbox.length === 4) {
+					map.getView().fit(bbox, { padding: [40, 40, 40, 40], maxZoom: 18, duration: 300 });
 				}
 				buildLegend();
 			} catch(e) {
@@ -126,7 +137,7 @@
 				allFeatures.forEach(function(f) {
 					if (f.get('layerKey') === key) f.set('visible', !hidden);
 				});
-				layer.changed();
+				vectorLayer.changed();
 			};
 			div.appendChild(row);
 		});

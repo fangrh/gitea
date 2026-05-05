@@ -167,10 +167,13 @@ func offsetScaledCoords(ring [][]float64, dx, dy float64) [][]float64 {
 }
 
 func (p *ParsedGDS) Scale() float64 {
+	// Scale coordinates to visible range for OpenLayers EPSG:3857 rendering.
+	// GDS database units are nanometers; scaled coords need to be in ~meter range.
+	// Multiply by UnitDB (db→micron) then 1e6 (micron→meter), so 1nm→0.001m.
 	if p.UnitDB > 0 {
-		return p.UnitDB
+		return p.UnitDB * 1e3 // convert db units to millimeters (visible in EPSG:3857)
 	}
-	return 1.0
+	return 1000.0 // fallback: assume 1 db unit = 1 µm, scale to mm
 }
 
 func layerColor(layer, _ int16) string {
