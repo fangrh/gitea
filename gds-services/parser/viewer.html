@@ -163,31 +163,38 @@ var map = new ol.Map({
     controls: [new ol.control.Zoom()]
 });
 
-// Select interaction
+// Select interaction — multi-select capable
 var selectClick = new ol.interaction.Select({
     layers: [vectorLayer],
-    style: null  // use layer style function
+    style: null,  // use layer style function
+    multi: true
 });
 map.addInteraction(selectClick);
 
 selectClick.on('select', function(e) {
-    if (e.selected.length > 0) {
-        var f = e.selected[0];
-        // Deselect previous
-        if (selectedFeature && selectedFeature !== f) {
-            selectedFeature.set('selected', false);
+    var clicked = e.selected.length > 0 ? e.selected[0] : null;
+
+    if (clicked) {
+        var alreadySelected = selectedFeatures.getArray().includes(clicked);
+        if (ctrlPressed) {
+            if (alreadySelected) {
+                removeFromSelection([clicked]);
+            } else {
+                addToSelection([clicked]);
+            }
+        } else {
+            replaceSelection([clicked]);
         }
-        selectedFeature = f;
-        f.set('selected', true);
-        showInspect(f);
     } else {
-        if (selectedFeature) {
-            selectedFeature.set('selected', false);
-            selectedFeature = null;
-        }
-        clearInspect();
+        // Clicked empty space
+        clearSelection();
+        return;
     }
+
+    // Clear the internal Select collection so it doesn't accumulate
+    selectClick.getFeatures().clear();
     vectorLayer.changed();
+    onSelectionChanged();
 });
 
 var allFeatures = [];
