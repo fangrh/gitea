@@ -16,6 +16,46 @@ LAYER_COLORS = [
 ]
 
 
+PROVENANCE_LAYER = (255, 255)
+
+
+def _extract_provenance(layout) -> dict[str, dict]:
+    """Return ``{cell_name: provenance_dict}`` from TEXT on layer 255/255."""
+    import json as _json
+    import klayout.db as kdb
+
+    prov = {}
+    prov_li = layout.layer(*PROVENANCE_LAYER)
+    if prov_li is None:
+        return prov
+    for ci in range(layout.cells()):
+        cell = layout.cell(ci)
+        for shape in cell.shapes(prov_li).each(kdb.Shapes.STexts):
+            try:
+                entry = _json.loads(shape.text.string)
+                name = entry.get("cell") or cell.name or ""
+                if name:
+                    prov[name] = entry
+            except Exception:
+                pass
+    return prov
+
+
+def _polygon_metadata(ring):
+    """Return area_um2, vertex_count, bbox for a ring."""
+    xs = [p[0] for p in ring]
+    ys = [p[1] for p in ring]
+    area = 0.5 * abs(sum(
+        xs[i] * ys[i + 1] - xs[i + 1] * ys[i]
+        for i in range(len(ring) - 1)
+    ))
+    return {
+        "area_um2": round(area, 4),
+        "vertex_count": len(ring) - 1,  # last == first
+        "bbox": [round(min(xs), 6), round(min(ys), 6), round(max(xs), 6), round(max(ys), 6)],
+    }
+
+
 def parse_gds(data: bytes) -> dict:
     """Parse GDSII binary and return GeoJSON FeatureCollection."""
     import tempfile, os
@@ -29,16 +69,20 @@ def parse_gds(data: bytes) -> dict:
     finally:
         os.unlink(tmp.name)
 
+    provenance_by_cell = _extract_provenance(layout)
+
     layers = {}
     top = layout.top_cell()
     for li in layout.layer_indexes():
+        info = layout.layer_infos()[li]
+        if (info.layer, info.datatype) == PROVENANCE_LAYER:
+            continue
         it = top.begin_shapes_rec(li)
         if it.at_end():
             continue
-        info = layout.layer_infos()[li]
         key = (info.layer, info.datatype)
         if key not in layers:
-            layers[key] = []
+            layers[key] = {"polys": [], "provenance_by_cell": {}}
         region = kdb.Region(it)
         region.merge()
         for poly in region.each():
@@ -46,19 +90,39 @@ def parse_gds(data: bytes) -> dict:
             ring = [[p.x * 0.001, p.y * 0.001] for p in pts.each_point()]
             if len(ring) >= 3:
                 ring.append(ring[0])
-                layers[key].append([ring])
+                layers[key]["polys"].append([ring])
+
+    # Find which cells contribute to which layers
+    for ci in range(layout.cells()):
+        cell = layout.cell(ci)
+        if not cell.name:
+            continue
+        cell_prov = provenance_by_cell.get(cell.name)
+        for li in layout.layer_indexes():
+            linfo = layout.layer_infos()[li]
+            if (linfo.layer, linfo.datatype) == PROVENANCE_LAYER:
+                continue
+            if cell.shapes(li).is_empty():
+                continue
+            key = (linfo.layer, linfo.datatype)
+            if key in layers and cell_prov:
+                layers[key]["provenance_by_cell"][cell.name] = cell_prov
 
     features = []
     min_x = min_y = float("inf")
     max_x = max_y = float("-inf")
-    for key, polys in layers.items():
+    for key, entry in layers.items():
+        polys = entry["polys"]
         if not polys:
             continue
         color = LAYER_COLORS[key[0] % len(LAYER_COLORS)]
+        properties = {"layer": key[0], "data_type": key[1], "color": color}
+        if entry["provenance_by_cell"]:
+            properties["provenance_by_cell"] = entry["provenance_by_cell"]
         features.append({
             "type": "Feature",
             "geometry": {"type": "MultiPolygon", "coordinates": polys},
-            "properties": {"layer": key[0], "data_type": key[1], "color": color},
+            "properties": properties,
         })
         for poly in polys:
             for ring in poly:
