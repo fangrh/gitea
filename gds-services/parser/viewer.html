@@ -278,6 +278,12 @@ function showInspect(feature) {
         currentProvenance = {};
     }
 
+    // Update source panel placeholder based on provenance availability
+    var sp = document.getElementById('source-panel');
+    if (!currentProvenance.file) {
+        sp.innerHTML = '<p class="placeholder">No provenance data in this GDS file.<br><small style="color:#585b70;">Rebuild the GDS with the latest gdsfactory to enable source inspection.</small></p>';
+    }
+
     // If source tab is active, reload it
     if (activeTab === 'source') {
         loadSource();
@@ -286,7 +292,7 @@ function showInspect(feature) {
 
 function clearInspect() {
     document.getElementById('info-panel').innerHTML = '<p class="placeholder">Click a polygon to inspect</p>';
-    document.getElementById('source-panel').innerHTML = '<p class="placeholder">Click a polygon, then switch to Source tab to view code</p>';
+    document.getElementById('source-panel').innerHTML = '<p class="placeholder">Click a polygon, then switch to Source tab to view code<br><small style="color:#585b70;">Requires provenance data embedded in the GDS file.</small></p>';
     currentProvenance = {};
 }
 
