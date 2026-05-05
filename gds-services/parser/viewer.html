@@ -603,6 +603,71 @@ var translateInteraction = new ol.interaction.Translate({
 translateInteraction.setActive(false);
 map.addInteraction(translateInteraction);
 
+// Snap
+var gridSource = new ol.source.Vector();
+var snapGds = new ol.interaction.Snap({ source: source, pixelTolerance: 10 });
+var snapDraw = new ol.interaction.Snap({ source: drawSource, pixelTolerance: 10 });
+var snapGrid = new ol.interaction.Snap({ source: gridSource, pixelTolerance: 10 });
+snapGds.setActive(false);
+snapDraw.setActive(false);
+snapGrid.setActive(false);
+map.addInteraction(snapGds);
+map.addInteraction(snapDraw);
+map.addInteraction(snapGrid);
+
+function toggleSnap() {
+    snapActive = !snapActive;
+    snapGds.setActive(snapActive);
+    snapDraw.setActive(snapActive);
+    snapGrid.setActive(snapActive);
+
+    var btn = document.querySelector('.tool-btn[data-mode="snap"]');
+    btn.classList.toggle('active', snapActive);
+
+    if (snapActive) {
+        updateGridSnap();
+    } else {
+        gridSource.clear();
+    }
+}
+
+function updateGridSnap() {
+    if (!snapActive) return;
+
+    var view = map.getView();
+    var resolution = view.getResolution();
+    var extent = view.calculateExtent(map.getSize());
+
+    var rawSpacing = resolution * 80;
+    var exponent = Math.floor(Math.log10(rawSpacing));
+    var spacing = Math.pow(10, exponent);
+
+    var minX = Math.floor(extent[0] / spacing) * spacing;
+    var minY = Math.floor(extent[1] / spacing) * spacing;
+    var maxX = Math.ceil(extent[2] / spacing) * spacing;
+    var maxY = Math.ceil(extent[3] / spacing) * spacing;
+
+    var maxPoints = 2000;
+    var countX = Math.round((maxX - minX) / spacing) + 1;
+    var countY = Math.round((maxY - minY) / spacing) + 1;
+    if (countX * countY > maxPoints) return;
+
+    gridSource.clear();
+    for (var x = minX; x <= maxX; x += spacing) {
+        for (var y = minY; y <= maxY; y += spacing) {
+            var pt = new ol.Feature({ geometry: new ol.geom.Point([x, y]) });
+            gridSource.addFeature(pt);
+        }
+    }
+}
+
+map.getView().on('change:resolution', function() {
+    if (snapActive) updateGridSnap();
+});
+map.on('moveend', function() {
+    if (snapActive) updateGridSnap();
+});
+
 var allFeatures = [];
 var layerColors = {};
 function fitView() {
