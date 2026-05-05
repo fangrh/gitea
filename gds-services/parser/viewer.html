@@ -14,7 +14,6 @@ body { display: flex; height: 100vh; background: #1a1a2e; font-family: -apple-sy
 #sidebar button { width: 100%; margin-bottom: 8px; padding: 6px 10px; background: #45475a; color: #cdd6f4; border: 1px solid #585b70; border-radius: 4px; cursor: pointer; font-size: 12px; }
 #sidebar button:hover { background: #585b70; }
 #map-container { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-#map { flex: 1; min-height: 300px; }
 #console { height: 200px; background: #11111b; color: #cdd6f4; font: 13px/1.5 'Cascadia Code', 'Fira Code', 'Consolas', monospace; overflow-y: auto; border-top: 2px solid #313244; flex-shrink: 0; transition: height 0.15s; }
 #console.collapsed { height: 32px; overflow-y: hidden; }
 #console-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: #181825; border-bottom: 1px solid #313244; cursor: pointer; user-select: none; position: sticky; top: 0; z-index: 1; }
@@ -52,6 +51,13 @@ body { display: flex; height: 100vh; background: #1a1a2e; font-family: -apple-sy
 .file-section-header .lines { color: #6c7086; margin-left: auto; }
 .file-section-body { max-height: 0; overflow: hidden; transition: max-height 0.2s; }
 .file-section-body.open { max-height: 400px; overflow-y: auto; }
+/* Drawing toolbar */
+#map-row { display: flex; flex: 1; min-height: 0; }
+#draw-toolbar { width: 40px; background: #1e1e2e; border-left: 1px solid #313244; display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 4px; flex-shrink: 0; }
+.tool-btn { width: 32px; height: 32px; background: transparent; border: 1px solid transparent; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #6c7086; padding: 0; }
+.tool-btn:hover { background: #313244; color: #cdd6f4; }
+.tool-btn.active { background: #45475a; color: #89b4fa; border-color: #89b4fa; }
+.tool-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style>
 </head>
 <body>
@@ -61,7 +67,33 @@ body { display: flex; height: 100vh; background: #1a1a2e; font-family: -apple-sy
     <div id="file-list"><p style="color:#6c7086;font-size:13px;">Loading...</p></div>
 </div>
 <div id="map-container">
-    <div id="map"></div>
+    <div id="map-row">
+        <div id="map" style="flex:1;"></div>
+        <div id="draw-toolbar">
+            <button class="tool-btn active" data-mode="select" title="Select (1)" onclick="setMode('select')">
+                <svg viewBox="0 0 24 24"><path d="M5 3l14 9-7 2-3 7z"/></svg>
+            </button>
+            <button class="tool-btn" data-mode="rectangle" title="Rectangle (2)" onclick="setMode('rectangle')">
+                <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>
+            </button>
+            <button class="tool-btn" data-mode="circle" title="Circle (3)" onclick="setMode('circle')">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
+            </button>
+            <button class="tool-btn" data-mode="line" title="Line (4)" onclick="setMode('line')">
+                <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+            </button>
+            <button class="tool-btn" data-mode="polygon" title="Polygon (5)" onclick="setMode('polygon')">
+                <svg viewBox="0 0 24 24"><path d="M12 3l9 7-3 10H6L3 10z"/></svg>
+            </button>
+            <div style="height:1px;width:24px;background:#313244;margin:4px 0;"></div>
+            <button class="tool-btn" data-mode="delete" title="Delete drawn" onclick="deleteDrawn()">
+                <svg viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+            </button>
+            <button class="tool-btn" data-mode="snap" title="Snap (S)" onclick="toggleSnap()">
+                <svg viewBox="0 0 24 24"><path d="M6 16c0-3.3 2.7-6 6-6s6 2.7 6 6v3H6z"/><line x1="12" y1="3" x2="12" y2="7"/></svg>
+            </button>
+        </div>
+    </div>
     <div id="console">
         <div id="console-header">
             <span style="display:flex;align-items:center;gap:2px;">
@@ -91,9 +123,37 @@ var activeTab = 'info';
 var sourceCache = {};   // filePath -> source code string
 var expandedFiles = {}; // filePath -> true/false
 
+var currentMode = 'select';
+var snapActive = false;
+var drawInteractions = {};
+
+var drawSource = new ol.source.Vector();
+
+var drawStyleDefault = new ol.style.Style({
+    stroke: new ol.style.Stroke({ color: '#f38ba8', width: 2, lineDash: [8, 4] }),
+    fill: new ol.style.Fill({ color: 'rgba(243, 139, 168, 0.1)' })
+});
+
+var drawStyleSelected = new ol.style.Style({
+    stroke: new ol.style.Stroke({ color: '#ffffff', width: 3 }),
+    fill: new ol.style.Fill({ color: 'rgba(243, 139, 168, 0.3)' })
+});
+
+var drawLayer = new ol.layer.Vector({
+    source: drawSource,
+    style: function(feature) {
+        return feature.get('selected') ? drawStyleSelected : drawStyleDefault;
+    }
+});
+
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Control' || e.key === 'Meta') ctrlPressed = true;
-    if (e.key === 'Escape') clearSelection();
+    if (e.key === 'Escape') {
+        if (currentMode !== 'select') {
+            setMode('select');
+        }
+        clearSelection();
+    }
 });
 document.addEventListener('keyup', function(e) {
     if (e.key === 'Control' || e.key === 'Meta') ctrlPressed = false;
@@ -129,6 +189,30 @@ function clearSelection() {
     selectedFeatures.clear();
     vectorLayer.changed();
     onSelectionChanged();
+}
+
+function setMode(mode) {
+    if (mode === currentMode && mode !== 'select') {
+        mode = 'select';
+    }
+    currentMode = mode;
+
+    Object.keys(drawInteractions).forEach(function(key) {
+        drawInteractions[key].setActive(false);
+    });
+
+    var isDrawMode = (mode !== 'select');
+    selectClick.setActive(!isDrawMode);
+    dragBox.setActive(!isDrawMode);
+
+    if (isDrawMode && drawInteractions[mode]) {
+        drawInteractions[mode].setActive(true);
+    }
+
+    document.querySelectorAll('.tool-btn[data-mode]').forEach(function(btn) {
+        if (btn.dataset.mode === 'snap' || btn.dataset.mode === 'delete') return;
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
 }
 
 function onSelectionChanged() {
@@ -330,7 +414,7 @@ var vectorLayer = new ol.layer.Vector({
 
 var map = new ol.Map({
     target: 'map',
-    layers: [vectorLayer],
+    layers: [vectorLayer, drawLayer],
     view: new ol.View({ center: [0, 0], zoom: 2, minZoom: -20, maxZoom: 40 }),
     controls: [new ol.control.Zoom()]
 });
