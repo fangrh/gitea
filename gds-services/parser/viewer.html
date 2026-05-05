@@ -147,11 +147,28 @@ function fitView() {
     }
 }
 
-function loadGDS(filePath) {
+function loadGDS(filePath, retries) {
     currentFilePath = filePath;
-    fetch('/data?repo=' + encodeURIComponent(repo) + '&ref=' + branch + '&path=' + encodeURIComponent(filePath))
-        .then(function(r) { if (!r.ok) throw Error('HTTP ' + r.status); return r.json(); })
+    retries = retries || 0;
+    var pollParam = retries > 0 ? '&poll=1' : '';
+    fetch('/data?repo=' + encodeURIComponent(repo) + '&ref=' + branch + '&path=' + encodeURIComponent(filePath) + pollParam)
+        .then(function(r) {
+            if (r.status === 202) {
+                // Still building — poll
+                if (retries < 30) {
+                    showBuilding(retries + 1);
+                    setTimeout(function() { loadGDS(filePath, retries + 1); }, 2000);
+                } else {
+                    console.error('Build timeout for ' + filePath);
+                }
+                return null;
+            }
+            if (!r.ok) throw Error('HTTP ' + r.status);
+            return r.json();
+        })
         .then(function(geojson) {
+            if (!geojson) return;
+            hideBuilding();
             source.clear();
             allFeatures = [];
             layerColors = {};
@@ -361,6 +378,17 @@ function addSep(parent) {
 
 function frag() { return document.createDocumentFragment(); }
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function showBuilding(attempt) {
+    var info = document.getElementById('info-panel');
+    info.innerHTML = '<p class="placeholder">Building GDS... (' + attempt + '/30)<br><small style="color:#585b70;">First build may take ~2 minutes.</small></p>';
+    var sp = document.getElementById('source-panel');
+    sp.innerHTML = '<p class="placeholder">Waiting for build to complete...</p>';
+}
+
+function hideBuilding() {
+    // UI returns to normal via showInspect / clearInspect
+}
 
 function toggleConsole() {
     var c = document.getElementById('console');

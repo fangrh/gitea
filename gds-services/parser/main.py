@@ -214,7 +214,7 @@ def list_files(repo: str, ref: str = "main"):
 
 
 @app.get("/data")
-def get_gds_data(repo: str, ref: str = "main", path: str = ""):
+def get_gds_data(repo: str, ref: str = "main", path: str = "", poll: bool = False):
     owner, name = repo.split("/")
     repo_dir = pathlib.Path(f"/data/git/repositories/{owner.lower()}/{name.lower()}.git")
 
@@ -226,16 +226,38 @@ def get_gds_data(repo: str, ref: str = "main", path: str = ""):
             media_type="application/json",
         )
 
-    # Fall back to git
-    if not repo_dir.exists():
-        raise HTTPException(404, f"Repo not found: {repo}")
-    result = subprocess.run(
-        ["git", "--git-dir", str(repo_dir), "show", f"{ref}:{path}"],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise HTTPException(404, f"File not found: {path}")
-    return Response(content=json.dumps(parse_gds(result.stdout)), media_type="application/json")
+    # Fall back to git (backward compat for old repos with committed GDS)
+    if repo_dir.exists():
+        result = subprocess.run(
+            ["git", "--git-dir", str(repo_dir), "show", f"{ref}:{path}"],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            return Response(
+                content=json.dumps(parse_gds(result.stdout)),
+                media_type="application/json",
+            )
+
+    # Neither cache nor git — trigger a rebuild if poll is set
+    if poll:
+        _trigger_build(owner, name, ref)
+        return Response(
+            content=json.dumps({"status": "building"}),
+            media_type="application/json",
+            status_code=202,
+        )
+
+    raise HTTPException(404, f"File not found: {path}")
+
+
+def _trigger_build(owner: str, repo: str, ref: str):
+    """Fire-and-forget build request to gds-builder."""
+    try:
+        import urllib.request
+        url = f"http://gds-builder:8001/build/all?repo={owner}/{repo}&ref={ref}"
+        urllib.request.urlopen(urllib.request.Request(url, method="POST"), timeout=5)
+    except Exception:
+        pass
 
 
 @app.get("/source")
