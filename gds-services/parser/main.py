@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import Response, FileResponse
 
 app = FastAPI(title="gds-parser")
+BUILD_CACHE = pathlib.Path("/data/build-cache")
 
 LAYER_COLORS = [
     "#4ecdc4", "#ff6b6b", "#45b7d1", "#96ceb4",
@@ -163,15 +164,31 @@ def viewer():
 def list_files(repo: str, ref: str = "main"):
     owner, name = repo.split("/")
     repo_dir = pathlib.Path(f"/data/git/repositories/{owner.lower()}/{name.lower()}.git")
-    if not repo_dir.exists():
-        raise HTTPException(404, f"Repo not found: {repo}")
-    result = subprocess.run(
-        ["git", "--git-dir", str(repo_dir), "ls-tree", "-r", "--name-only", ref],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        return []
-    files = [f.strip() for f in result.stdout.splitlines() if f.strip().endswith(".gds")]
+    files = []
+    seen = set()
+
+    # From git
+    if repo_dir.exists():
+        result = subprocess.run(
+            ["git", "--git-dir", str(repo_dir), "ls-tree", "-r", "--name-only", ref],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            for f in result.stdout.splitlines():
+                f = f.strip()
+                if f.endswith(".gds"):
+                    files.append(f)
+                    seen.add(f)
+
+    # From build cache
+    cache_dir = BUILD_CACHE / owner.lower() / name.lower() / ref
+    if cache_dir.exists():
+        for gds in cache_dir.rglob("*.gds"):
+            rel = str(gds.relative_to(cache_dir)).replace("\\", "/")
+            if rel not in seen:
+                files.append(rel)
+                seen.add(rel)
+
     return files
 
 
@@ -179,6 +196,16 @@ def list_files(repo: str, ref: str = "main"):
 def get_gds_data(repo: str, ref: str = "main", path: str = ""):
     owner, name = repo.split("/")
     repo_dir = pathlib.Path(f"/data/git/repositories/{owner.lower()}/{name.lower()}.git")
+
+    # Try build cache first
+    cache_file = BUILD_CACHE / owner.lower() / name.lower() / ref / path
+    if cache_file.exists():
+        return Response(
+            content=json.dumps(parse_gds(cache_file.read_bytes())),
+            media_type="application/json",
+        )
+
+    # Fall back to git
     if not repo_dir.exists():
         raise HTTPException(404, f"Repo not found: {repo}")
     result = subprocess.run(

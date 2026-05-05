@@ -93,7 +93,8 @@ services:
 
   gds-builder:
     build:
-      context: ./gds-services/builder
+      context: .
+      dockerfile: gds-services/builder/Dockerfile
     restart: unless-stopped
     networks:
       - gitea
