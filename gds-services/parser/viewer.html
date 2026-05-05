@@ -771,6 +771,112 @@ function addSep(parent) {
 function frag() { return document.createDocumentFragment(); }
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+function getShapeGeom(feature) {
+    var type = feature.get('shapeType');
+    var geom = feature.getGeometry();
+    var result = { type: type };
+
+    if (type === 'rectangle' || type === 'polygon') {
+        var coords = geom.getCoordinates()[0];
+        result.coordinates = coords.slice(0, -1).map(function(c) { return [Math.round(c[0] * 100) / 100, Math.round(c[1] * 100) / 100]; });
+        var ext = geom.getExtent();
+        result.bbox = [Math.round(ext[0] * 100) / 100, Math.round(ext[1] * 100) / 100, Math.round(ext[2] * 100) / 100, Math.round(ext[3] * 100) / 100];
+        result.width = Math.round((ext[2] - ext[0]) * 100) / 100;
+        result.height = Math.round((ext[3] - ext[1]) * 100) / 100;
+        result.center = [Math.round((ext[0] + ext[2]) / 2 * 100) / 100, Math.round((ext[1] + ext[3]) / 2 * 100) / 100];
+        var area = 0;
+        for (var i = 0; i < coords.length - 1; i++) {
+            area += coords[i][0] * coords[i + 1][1] - coords[i + 1][0] * coords[i][1];
+        }
+        result.area = Math.round(Math.abs(area) / 2 * 100) / 100;
+    } else if (type === 'circle') {
+        var center = geom.getCenter();
+        var radius = geom.getRadius();
+        result.center = [Math.round(center[0] * 100) / 100, Math.round(center[1] * 100) / 100];
+        result.radius = Math.round(radius * 100) / 100;
+        result.bbox = [
+            Math.round((center[0] - radius) * 100) / 100,
+            Math.round((center[1] - radius) * 100) / 100,
+            Math.round((center[0] + radius) * 100) / 100,
+            Math.round((center[1] + radius) * 100) / 100
+        ];
+    } else if (type === 'line') {
+        var coords = geom.getCoordinates();
+        result.coordinates = coords.map(function(c) { return [Math.round(c[0] * 100) / 100, Math.round(c[1] * 100) / 100]; });
+        var len = 0;
+        for (var i = 1; i < coords.length; i++) {
+            var dx = coords[i][0] - coords[i - 1][0];
+            var dy = coords[i][1] - coords[i - 1][1];
+            len += Math.sqrt(dx * dx + dy * dy);
+        }
+        result.length = Math.round(len * 100) / 100;
+    }
+
+    return result;
+}
+
+function showDrawnInspect(feature) {
+    var panel = document.getElementById('info-panel');
+    panel.innerHTML = '';
+
+    var sg = getShapeGeom(feature);
+    var d = frag();
+    addKV(d, 'type', sg.type, true);
+    if (sg.coordinates) addKV(d, 'coordinates', JSON.stringify(sg.coordinates));
+    if (sg.bbox) addKV(d, 'bbox', JSON.stringify(sg.bbox));
+    if (sg.width !== undefined) addKV(d, 'width', sg.width + ' um');
+    if (sg.height !== undefined) addKV(d, 'height', sg.height + ' um');
+    if (sg.radius !== undefined) addKV(d, 'radius', sg.radius + ' um');
+    if (sg.length !== undefined) addKV(d, 'length', sg.length + ' um');
+    if (sg.area !== undefined) addKV(d, 'area', sg.area + ' um2');
+    if (sg.center) addKV(d, 'center', JSON.stringify(sg.center));
+    panel.appendChild(d);
+
+    document.getElementById('source-panel').innerHTML = '<p class="placeholder">Drawn shape — no source code</p>';
+}
+
+function showDrawnMultiInspect(features) {
+    var panel = document.getElementById('info-panel');
+    panel.innerHTML = '';
+
+    addKV(panel, 'selected', 'Selected: ' + features.length + ' drawn shapes');
+
+    features.forEach(function(f, idx) {
+        addSep(panel);
+        var sg = getShapeGeom(f);
+        addKV(panel, 'shape ' + (idx + 1), sg.type, true);
+        if (sg.bbox) addKV(panel, 'bbox', JSON.stringify(sg.bbox));
+        if (sg.width !== undefined) addKV(panel, 'size', sg.width + ' x ' + sg.height + ' um');
+        if (sg.radius !== undefined) addKV(panel, 'radius', sg.radius + ' um');
+        if (sg.length !== undefined) addKV(panel, 'length', sg.length + ' um');
+        if (sg.area !== undefined) addKV(panel, 'area', sg.area + ' um2');
+    });
+
+    document.getElementById('source-panel').innerHTML = '<p class="placeholder">Drawn shapes — no source code</p>';
+}
+
+function showMixedInspect(gdsFeatures, drawnFeatures) {
+    var panel = document.getElementById('info-panel');
+    panel.innerHTML = '';
+
+    addKV(panel, 'selected', gdsFeatures.length + ' GDS + ' + drawnFeatures.length + ' drawn');
+
+    if (gdsFeatures.length > 0) {
+        addSep(panel);
+        addKV(panel, 'GDS', gdsFeatures.length + ' polygon(s)');
+    }
+    if (drawnFeatures.length > 0) {
+        addSep(panel);
+        addKV(panel, 'Drawn', drawnFeatures.length + ' shape(s)');
+        drawnFeatures.forEach(function(f, idx) {
+            var sg = getShapeGeom(f);
+            addKV(panel, '', sg.type + ' — ' + (sg.bbox ? JSON.stringify(sg.bbox) : ''));
+        });
+    }
+
+    document.getElementById('source-panel').innerHTML = '<p class="placeholder">Mixed selection — see Info tab</p>';
+}
+
 function showBuilding(attempt) {
     var info = document.getElementById('info-panel');
     info.innerHTML = '<p class="placeholder">Building GDS... (' + attempt + '/30)<br><small style="color:#585b70;">First build may take ~2 minutes.</small></p>';
