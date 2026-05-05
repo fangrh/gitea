@@ -154,6 +154,21 @@ class SchedulerStorage:
             raise RuntimeError("Completed task not found")
         return task
 
+    def release_task(self, task_id: str, session_id: str, status: str, summary: str | None = None) -> TaskRecord:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE tasks
+                SET status = ?, summary = ?, session_id = NULL, claimed_by = NULL, lease_expires_at = NULL
+                WHERE task_id = ? AND session_id = ?
+                """,
+                (status, summary, task_id, session_id),
+            )
+        task = self.get_task(task_id)
+        if task is None:
+            raise RuntimeError("Released task not found")
+        return task
+
 
 def _row_to_task(row: sqlite3.Row) -> TaskRecord:
     return TaskRecord(

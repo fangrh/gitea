@@ -38,6 +38,10 @@ It includes installation, administration, usage, development, contributing guide
 
 If you have any suggestions or would like to contribute to it, you can visit the [documentation repository](https://gitea.com/gitea/docs)
 
+## Agent Scheduler Bridge
+
+This workspace also includes an MVP `agent-scheduler` service plus a local `tools.agent_bridge` CLI for repository-scoped issue/comment task handling. See [docs/agent-scheduler-local-bridge.md](docs/agent-scheduler-local-bridge.md).
+
 ## Building
 
 From the root of the source tree, run:

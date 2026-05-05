@@ -53,6 +53,8 @@ cpu.out
 *.db
 *.log
 *.log.*.gz
+__pycache__/
+*.py[cod]
 
 /gitea
 /debug
