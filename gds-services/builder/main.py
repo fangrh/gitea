@@ -38,12 +38,37 @@ def _find_py_files(workspace: pathlib.Path, subdir: str = "designs") -> list[str
 
 
 def _run_build(design_path: str, workspace: pathlib.Path) -> subprocess.CompletedProcess:
-    """Run a design script with the forked gdsfactory."""
+    """Run a design script with the forked gdsfactory.
+
+    If a Snakefile exists in the workspace, use snakemake for a proper
+    pipeline build (which produces all GDS files with provenance).
+    Otherwise fall back to running the script directly.
+    """
     env = os.environ.copy()
     env["GDS_PROJECT_ROOT"] = str(workspace)
     env["PYTHONPATH"] = str(workspace) + ":" + env.get("PYTHONPATH", "")
-    # Wrap in python -c to auto-activate generic PDK, then use runpy so
-    # __file__ is set correctly for inspect.stack() provenance capture.
+
+    snakefile = workspace / "Snakefile"
+    if snakefile.exists():
+        design_name = pathlib.Path(design_path).stem
+        # Delete stale GDS for this design so snakemake rebuilds it
+        gds_path = workspace / "gds" / f"{design_name}.gds"
+        gds_path.unlink(missing_ok=True)
+        return subprocess.run(
+            [
+                "snakemake", "build_gds",
+                "--snakefile", str(snakefile),
+                "--config", f"design={design_name}",
+                "--cores", "4",
+                "--printshellcmds",
+            ],
+            cwd=str(workspace),
+            capture_output=True, text=True,
+            timeout=TIMEOUT,
+            env=env,
+        )
+
+    # No Snakefile — run the script directly via runpy for provenance
     script_path = str(workspace / design_path)
     wrapper = (
         "import runpy, gdsfactory as gf; "
@@ -176,31 +201,61 @@ def build_all(
     repo: str = Query(...),
     ref: str = Query("main"),
 ):
-    """Discover and build all design files in a repo."""
+    """Run the full build pipeline (snakemake if available, else all designs)."""
     owner, name = repo.split("/")
     bare = REPOS_DIR / owner.lower() / f"{name.lower()}.git"
     if not bare.exists():
         raise HTTPException(404, f"Repo not found: {repo}")
 
-    # Use a temporary workspace just to discover design files
-    ws = pathlib.Path(tempfile.mkdtemp(prefix="gdsbuild-discover-"))
+    ws = pathlib.Path(tempfile.mkdtemp(prefix="gdsbuild-all-"))
     try:
         if not _extract_repo(bare, ref, ws):
             raise HTTPException(500, "Failed to extract repo")
 
+        gds_before = _snapshot_gds(ws)
+
+        snakefile = ws / "Snakefile"
+        if snakefile.exists():
+            # Remove stale pre-existing GDS files so snakemake rebuilds them
+            for rel, _mtime in gds_before.items():
+                (ws / rel).unlink(missing_ok=True)
+
+            # Run snakemake full pipeline (rule 'all')
+            env = os.environ.copy()
+            env["GDS_PROJECT_ROOT"] = str(ws)
+            env["PYTHONPATH"] = str(ws) + ":" + env.get("PYTHONPATH", "")
+            result = subprocess.run(
+                [
+                    "snakemake",
+                    "--snakefile", str(snakefile),
+                    "--cores", "4",
+                    "--printshellcmds",
+                ],
+                cwd=str(ws),
+                capture_output=True, text=True,
+                timeout=TIMEOUT,
+                env=env,
+            )
+            cached = _collect_and_cache(ws, owner, name, ref, gds_before)
+            return {
+                "status": "ok" if result.returncode == 0 else "build_failed",
+                "method": "snakemake",
+                "returncode": result.returncode,
+                "stdout": result.stdout[-3000:] if result.stdout else "",
+                "stderr": result.stderr[-3000:] if result.stderr else "",
+                "built_files": cached,
+            }
+
+        # No Snakefile — discover and build individual designs
         designs = _find_py_files(ws, "designs")
+        results = []
+        for d in designs:
+            try:
+                r = do_build(owner, name, d, ref)
+                results.append(r)
+            except Exception as e:
+                results.append({"status": "error", "design": d, "error": str(e)})
+        return {"status": "ok", "method": "individual", "results": results}
+
     finally:
         shutil.rmtree(ws, ignore_errors=True)
-
-    if not designs:
-        return {"status": "ok", "message": "No design files found in designs/", "results": []}
-
-    results = []
-    for d in designs:
-        try:
-            r = do_build(owner, name, d, ref)
-            results.append(r)
-        except Exception as e:
-            results.append({"status": "error", "design": d, "error": str(e)})
-
-    return {"status": "ok", "built": len(results), "results": results}
