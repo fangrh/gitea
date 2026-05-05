@@ -188,6 +188,7 @@ function clearSelection() {
     selectedFeatures.forEach(function(f) { f.set('selected', false); });
     selectedFeatures.clear();
     vectorLayer.changed();
+    drawLayer.changed();
     onSelectionChanged();
 }
 
@@ -421,7 +422,7 @@ var map = new ol.Map({
 
 // Select interaction — multi-select capable
 var selectClick = new ol.interaction.Select({
-    layers: [vectorLayer],
+    layers: [vectorLayer, drawLayer],
     style: null,  // use layer style function
     multi: true
 });
@@ -442,14 +443,13 @@ selectClick.on('select', function(e) {
             replaceSelection([clicked]);
         }
     } else {
-        // Clicked empty space
         clearSelection();
         return;
     }
 
-    // Clear the internal Select collection so it doesn't accumulate
     selectClick.getFeatures().clear();
     vectorLayer.changed();
+    drawLayer.changed();
     onSelectionChanged();
 });
 
@@ -476,7 +476,6 @@ dragBox.on('boxend', function(e) {
         Math.pow(e.pixel[1] - dragStartPixel[1], 2)
     );
 
-    // If drag distance < 5px, treat as click — let Select handle it
     if (dragDist < 5) return;
 
     var featuresInBox = [];
@@ -488,6 +487,12 @@ dragBox.on('boxend', function(e) {
             }
         }
     });
+    drawSource.forEachFeatureInExtent(extent, function(f) {
+        var geom = f.getGeometry();
+        if (geom && ol.extent.intersects(extent, geom.getExtent())) {
+            featuresInBox.push(f);
+        }
+    });
 
     if (ctrlPressed) {
         addToSelection(featuresInBox);
@@ -496,6 +501,7 @@ dragBox.on('boxend', function(e) {
     }
 
     vectorLayer.changed();
+    drawLayer.changed();
     onSelectionChanged();
 });
 
