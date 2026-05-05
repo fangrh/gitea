@@ -307,8 +307,10 @@ function loadSource() {
     var panel = document.getElementById('source-panel');
     panel.innerHTML = '<p class="placeholder" style="padding:12px;">Loading...</p>';
 
+    // Normalize Windows backslash paths to forward slashes for git
+    var filePath = (currentProvenance.file || '').replace(/\\/g, '/');
     var url = '/source?repo=' + encodeURIComponent(repo) + '&ref=' + branch
-        + '&path=' + encodeURIComponent(currentProvenance.file);
+        + '&path=' + encodeURIComponent(filePath);
 
     fetch(url).then(function(r) {
         if (!r.ok) throw Error('HTTP ' + r.status);
@@ -332,7 +334,10 @@ function loadSource() {
             }
         }
     }).catch(function(e) {
-        panel.innerHTML = '<p class="placeholder">Failed to load source: ' + esc(e.message) + '</p>';
+        console.error('loadSource failed:', url, e);
+        panel.innerHTML = '<p class="placeholder">Failed to load source: ' + esc(e.message)
+            + '<br><small style="color:#6c7086;">' + esc(filePath)
+            + '<br>The file may be in the gdsfactory library (not this repo).</small></p>';
     });
 }
 
