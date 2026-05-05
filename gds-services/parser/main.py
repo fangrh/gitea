@@ -16,28 +16,35 @@ LAYER_COLORS = [
 
 def parse_gds(data: bytes) -> dict:
     """Parse GDSII binary and return GeoJSON FeatureCollection."""
+    import tempfile, os
     import klayout.db as kdb
-    layout = kdb.Layout()
-    layout.read(io.BytesIO(data))
+    tmp = tempfile.NamedTemporaryFile(suffix=".gds", delete=False)
+    try:
+        tmp.write(data)
+        tmp.close()
+        layout = kdb.Layout()
+        layout.read(tmp.name)
+    finally:
+        os.unlink(tmp.name)
 
     layers = {}
-    for cell in layout.each_cell():
-        for li in layout.layer_indexes():
-            it = cell.shapes(li)
-            if it.is_empty():
-                continue
-            info = layout.layer_infos()[li]
-            key = (info.layer, info.datatype)
-            if key not in layers:
-                layers[key] = []
-            region = kdb.Region(it)
-            region.merge()
-            for poly in region.each():
-                pts = poly.to_simple_polygon()
-                ring = [[p.x * layout.dbu, p.y * layout.dbu] for p in pts.each_point()]
-                if len(ring) >= 3:
-                    ring.append(ring[0])
-                    layers[key].append([ring])
+    top = layout.top_cell()
+    for li in layout.layer_indexes():
+        it = top.begin_shapes_rec(li)
+        if it.at_end():
+            continue
+        info = layout.layer_infos()[li]
+        key = (info.layer, info.datatype)
+        if key not in layers:
+            layers[key] = []
+        region = kdb.Region(it)
+        region.merge()
+        for poly in region.each():
+            pts = poly.to_simple_polygon()
+            ring = [[p.x * layout.dbu, p.y * layout.dbu] for p in pts.each_point()]
+            if len(ring) >= 3:
+                ring.append(ring[0])
+                layers[key].append([ring])
 
     features = []
     min_x = min_y = float("inf")
