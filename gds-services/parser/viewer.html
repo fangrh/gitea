@@ -877,6 +877,20 @@ function showMixedInspect(gdsFeatures, drawnFeatures) {
     document.getElementById('source-panel').innerHTML = '<p class="placeholder">Mixed selection — see Info tab</p>';
 }
 
+function shapeToYAML(sg) {
+    var lines = [];
+    lines.push('shape: ' + sg.type);
+    if (sg.coordinates) lines.push('coordinates: ' + JSON.stringify(sg.coordinates));
+    if (sg.bbox) lines.push('bbox: ' + JSON.stringify(sg.bbox));
+    if (sg.width !== undefined) lines.push('width: ' + sg.width);
+    if (sg.height !== undefined) lines.push('height: ' + sg.height);
+    if (sg.center) lines.push('center: ' + JSON.stringify(sg.center));
+    if (sg.radius !== undefined) lines.push('radius: ' + sg.radius);
+    if (sg.length !== undefined) lines.push('length: ' + sg.length);
+    if (sg.area !== undefined) lines.push('area: ' + sg.area);
+    return lines;
+}
+
 function showBuilding(attempt) {
     var info = document.getElementById('info-panel');
     info.innerHTML = '<p class="placeholder">Building GDS... (' + attempt + '/30)<br><small style="color:#585b70;">First build may take ~2 minutes.</small></p>';
@@ -902,60 +916,86 @@ function copyYAML(e) {
     var features = selectedFeatures.getArray();
     if (features.length === 0) return;
 
-    if (features.length === 1) {
-        var f = features[0];
-        var layer = f.get('layer') || '?';
-        var provenance = f.get('provenance') || {};
-        var meta = f.get('meta') || {};
-        var bbox = (meta.bbox || []).map(function(v) { return v.toFixed(4); });
+    var drawnFeatures = features.filter(function(f) { return f.get('isDrawn'); });
+    var gdsFeatures = features.filter(function(f) { return !f.get('isDrawn'); });
 
-        var lines = [
-            'layer: ' + layer,
-            'area_um2: ' + (meta.area_um2 || ''),
-            'bbox: [' + bbox.join(', ') + ']',
-            'vertex_count: ' + (meta.vertex_count || ''),
-            'repo: ' + repo,
-            'ref: ' + branch,
-            'path: ' + currentFilePath
-        ];
+    var lines = [];
 
-        if (Object.keys(provenance).length > 0) {
-            lines.push('');
-            if (provenance.instance_name) lines.push('instance_name: ' + provenance.instance_name);
-            if (provenance.cell) lines.push('cell: ' + provenance.cell);
-            if (provenance.file) lines.push('file: ' + provenance.file);
-            if (provenance.line) lines.push('line: ' + provenance.line);
-            if (provenance.function && provenance.function !== '<module>') lines.push('function: ' + provenance.function);
-            if (provenance.class_name) lines.push('class_name: ' + provenance.class_name);
-            if (provenance.call_index) lines.push('call_index: ' + provenance.call_index);
-        }
+    if (gdsFeatures.length > 0) {
+        if (gdsFeatures.length === 1 && drawnFeatures.length === 0) {
+            var f = gdsFeatures[0];
+            var layer = f.get('layer') || '?';
+            var provenance = f.get('provenance') || {};
+            var meta = f.get('meta') || {};
+            var bbox = (meta.bbox || []).map(function(v) { return v.toFixed(4); });
 
-        copyToClipboard(lines.join('\n'));
-    } else {
-        var fileMap = {};
-        features.forEach(function(f) {
-            var prov = f.get('provenance') || {};
-            if (prov.file && prov.line) {
-                var fp = prov.file.replace(/\\/g, '/');
-                if (!fileMap[fp]) fileMap[fp] = [];
-                var ln = parseInt(prov.line);
-                if (fileMap[fp].indexOf(ln) === -1) fileMap[fp].push(ln);
+            lines = [
+                'layer: ' + layer,
+                'area_um2: ' + (meta.area_um2 || ''),
+                'bbox: [' + bbox.join(', ') + ']',
+                'vertex_count: ' + (meta.vertex_count || ''),
+                'repo: ' + repo,
+                'ref: ' + branch,
+                'path: ' + currentFilePath
+            ];
+            if (Object.keys(provenance).length > 0) {
+                lines.push('');
+                if (provenance.instance_name) lines.push('instance_name: ' + provenance.instance_name);
+                if (provenance.cell) lines.push('cell: ' + provenance.cell);
+                if (provenance.file) lines.push('file: ' + provenance.file);
+                if (provenance.line) lines.push('line: ' + provenance.line);
+                if (provenance.function && provenance.function !== '<module>') lines.push('function: ' + provenance.function);
+                if (provenance.class_name) lines.push('class_name: ' + provenance.class_name);
+                if (provenance.call_index) lines.push('call_index: ' + provenance.call_index);
             }
-        });
-
-        var lines = ['modifications:'];
-        Object.keys(fileMap).sort().forEach(function(fp) {
-            var sorted = fileMap[fp].sort(function(a,b){return a-b;});
-            lines.push('  - file: ' + fp);
-            lines.push('    lines: [' + sorted.join(', ') + ']');
-        });
-
-        if (lines.length === 1) {
-            lines = ['# No provenance data in selection'];
+        } else {
+            var fileMap = {};
+            gdsFeatures.forEach(function(f) {
+                var prov = f.get('provenance') || {};
+                if (prov.file && prov.line) {
+                    var fp = prov.file.replace(/\\/g, '/');
+                    if (!fileMap[fp]) fileMap[fp] = [];
+                    var ln = parseInt(prov.line);
+                    if (fileMap[fp].indexOf(ln) === -1) fileMap[fp].push(ln);
+                }
+            });
+            if (Object.keys(fileMap).length > 0) {
+                lines.push('modifications:');
+                Object.keys(fileMap).sort().forEach(function(fp) {
+                    var sorted = fileMap[fp].sort(function(a, b) { return a - b; });
+                    lines.push('  - file: ' + fp);
+                    lines.push('    lines: [' + sorted.join(', ') + ']');
+                });
+            }
         }
-
-        copyToClipboard(lines.join('\n'));
     }
+
+    if (drawnFeatures.length > 0) {
+        if (lines.length > 0) lines.push('');
+        if (drawnFeatures.length === 1 && gdsFeatures.length === 0) {
+            var sg = getShapeGeom(drawnFeatures[0]);
+            lines = lines.concat(shapeToYAML(sg));
+        } else {
+            lines.push('annotations:');
+            drawnFeatures.forEach(function(f) {
+                var sg = getShapeGeom(f);
+                lines.push('  - shape: ' + sg.type);
+                if (sg.bbox) lines.push('    bbox: ' + JSON.stringify(sg.bbox));
+                if (sg.width !== undefined) lines.push('    width: ' + sg.width);
+                if (sg.height !== undefined) lines.push('    height: ' + sg.height);
+                if (sg.center) lines.push('    center: ' + JSON.stringify(sg.center));
+                if (sg.radius !== undefined) lines.push('    radius: ' + sg.radius);
+                if (sg.length !== undefined) lines.push('    length: ' + sg.length);
+                if (sg.area !== undefined) lines.push('    area: ' + sg.area);
+            });
+        }
+    }
+
+    if (lines.length === 0) {
+        lines = ['# No data to copy'];
+    }
+
+    copyToClipboard(lines.join('\n'));
 }
 
 function copyToClipboard(text) {
