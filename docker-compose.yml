@@ -86,6 +86,8 @@ services:
     restart: unless-stopped
     networks:
       - gitea
+    ports:
+      - "127.0.0.1:8000:8000"
     volumes:
       - gitea-data:/data:ro
 
