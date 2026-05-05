@@ -42,6 +42,7 @@ body { display: flex; height: 100vh; background: #1a1a2e; font-family: -apple-sy
 .src-line.hl { background: rgba(250, 200, 80, 0.15); border-left: 3px solid #f9e2af; }
 .src-line .ln { color: #585b70; min-width: 44px; text-align: right; padding-right: 12px; user-select: none; flex-shrink: 0; }
 .src-line .code { color: #cdd6f4; white-space: pre; overflow-x: auto; }
+.ol-dragbox { border: 2px dashed #89b4fa !important; background-color: rgba(137,180,250,0.1) !important; }
 </style>
 </head>
 <body>
@@ -193,6 +194,52 @@ selectClick.on('select', function(e) {
 
     // Clear the internal Select collection so it doesn't accumulate
     selectClick.getFeatures().clear();
+    vectorLayer.changed();
+    onSelectionChanged();
+});
+
+// DragBox interaction for area selection
+var dragBox = new ol.interaction.DragBox({
+    condition: function(mapBrowserEvent) {
+        return ol.events.condition.mouseActionButton(mapBrowserEvent) &&
+               ol.events.condition.noModifierKeys(mapBrowserEvent) ||
+               ol.events.condition.platformModifierKeyOnly(mapBrowserEvent);
+    }
+});
+map.addInteraction(dragBox);
+
+var dragStartPixel = null;
+
+dragBox.on('boxstart', function(e) {
+    dragStartPixel = e.pixel;
+});
+
+dragBox.on('boxend', function(e) {
+    var extent = dragBox.getGeometry().getExtent();
+    var dragDist = Math.sqrt(
+        Math.pow(e.pixel[0] - dragStartPixel[0], 2) +
+        Math.pow(e.pixel[1] - dragStartPixel[1], 2)
+    );
+
+    // If drag distance < 5px, treat as click — let Select handle it
+    if (dragDist < 5) return;
+
+    var featuresInBox = [];
+    source.forEachFeatureInExtent(extent, function(f) {
+        if (f.get('visible') !== false) {
+            var geom = f.getGeometry();
+            if (geom && ol.extent.intersects(extent, geom.getExtent())) {
+                featuresInBox.push(f);
+            }
+        }
+    });
+
+    if (ctrlPressed) {
+        addToSelection(featuresInBox);
+    } else {
+        replaceSelection(featuresInBox);
+    }
+
     vectorLayer.changed();
     onSelectionChanged();
 });
