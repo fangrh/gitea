@@ -1061,27 +1061,15 @@ function copyYAML(e) {
     var lines = [];
 
     if (gdsFeatures.length > 0) {
-        if (gdsFeatures.length === 1 && drawnFeatures.length === 0) {
-            var f = gdsFeatures[0];
-            var layer = f.get('layer') || '?';
+        // GDS components: show as xxx.py Component N: Line X, bbox:[...]
+        gdsFeatures.forEach(function(f, idx) {
+            var prov = f.get('provenance') || {};
             var meta = f.get('meta') || {};
-            var bbox = (meta.bbox || []).map(function(v) { return v.toFixed(4); });
-
-            lines = [
-                'layer: ' + layer,
-                'area_um2: ' + (meta.area_um2 || ''),
-                'bbox: [' + bbox.join(', ') + ']',
-                'vertex_count: ' + (meta.vertex_count || '')
-            ];
-        } else {
-            // Multi-select: show each component with bbox only
-            gdsFeatures.forEach(function(f) {
-                var meta = f.get('meta') || {};
-                var bbox = meta.bbox || [];
-                var bboxStr = '[' + bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']';
-                lines.push('bbox: ' + bboxStr);
-            });
-        }
+            var bboxStr = '[' + (meta.bbox || []).map(function(v) { return v.toFixed(4); }).join(', ') + ']';
+            var base = (prov.file || '').split('/').pop();
+            var lineNum = prov.line || '?';
+            lines.push(base + ' Component ' + (idx + 1) + ': Line ' + lineNum + ', bbox:' + bboxStr);
+        });
     }
 
     if (drawnFeatures.length > 0) {
