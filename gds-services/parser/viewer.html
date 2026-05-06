@@ -312,6 +312,34 @@ function showMultiInspect(features) {
         addKV(panel, 'provenance', 'No provenance data in selection');
     }
 
+    // Build component list with bbox sorted by line number
+    var componentList = [];
+    features.forEach(function(f) {
+        var prov = f.get('provenance') || {};
+        var meta = f.get('meta') || {};
+        var bbox = meta.bbox || [];
+        if (prov.file && prov.line) {
+            componentList.push({
+                file: prov.file.replace(/\\/g, '/'),
+                line: parseInt(prov.line),
+                bbox: bbox
+            });
+        }
+    });
+
+    // Sort by line number
+    componentList.sort(function(a, b) { return a.line - b.line; });
+
+    // Display each component with bbox
+    if (componentList.length > 0) {
+        addKV(panel, 'components', componentList.length + ' component(s) with bbox');
+        componentList.forEach(function(comp, idx) {
+            var base = comp.file.split('/').pop();
+            var bboxStr = '[' + comp.bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']';
+            addKV(panel, '', base + ' Component ' + (idx + 1) + ': Line ' + comp.line + ', bbox:' + bboxStr);
+        });
+    }
+
     addSep(panel);
     addKV(panel, 'repo', repo);
     addKV(panel, 'ref', branch);
