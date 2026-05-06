@@ -312,32 +312,40 @@ function showMultiInspect(features) {
         addKV(panel, 'provenance', 'No provenance data in selection');
     }
 
-    // Build component list with bbox sorted by line number
+    // Build component list with bbox
     var componentList = [];
-    features.forEach(function(f) {
-        var prov = f.get('provenance') || {};
+    features.forEach(function(f, idx) {
         var meta = f.get('meta') || {};
         var bbox = meta.bbox || [];
-        var lineNum = parseInt(prov.line);
-        if (prov.file && !isNaN(lineNum)) {
-            componentList.push({
-                file: prov.file.replace(/\\/g, '/'),
-                line: lineNum,
-                bbox: bbox
-            });
-        }
+        var prov = f.get('provenance') || {};
+        componentList.push({
+            idx: idx + 1,
+            file: prov.file || '',
+            line: prov.line ? parseInt(prov.line) : null,
+            bbox: bbox
+        });
     });
 
-    // Sort by line number
-    componentList.sort(function(a, b) { return a.line - b.line; });
+    // Sort by line number (nulls go to end)
+    componentList.sort(function(a, b) {
+        if (a.line === null && b.line === null) return a.idx - b.idx;
+        if (a.line === null) return 1;
+        if (b.line === null) return -1;
+        return a.line - b.line;
+    });
 
     // Display each component with bbox
     if (componentList.length > 0) {
+        addSep(panel);
         addKV(panel, 'components', componentList.length + ' component(s)');
-        componentList.forEach(function(comp, idx) {
-            var base = comp.file.split('/').pop();
+        componentList.forEach(function(comp) {
             var bboxStr = '[' + comp.bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']';
-            addKV(panel, '', base + ' Component ' + (idx + 1) + ': Line ' + comp.line + ', bbox:' + bboxStr);
+            if (comp.file && comp.line) {
+                var base = comp.file.split('/').pop();
+                addKV(panel, '', base + ' Component ' + comp.idx + ': Line ' + comp.line + ', bbox:' + bboxStr);
+            } else {
+                addKV(panel, '', 'Component ' + comp.idx + ', bbox:' + bboxStr);
+            }
         });
     }
 
