@@ -1064,7 +1064,6 @@ function copyYAML(e) {
         if (gdsFeatures.length === 1 && drawnFeatures.length === 0) {
             var f = gdsFeatures[0];
             var layer = f.get('layer') || '?';
-            var provenance = f.get('provenance') || {};
             var meta = f.get('meta') || {};
             var bbox = (meta.bbox || []).map(function(v) { return v.toFixed(4); });
 
@@ -1072,34 +1071,15 @@ function copyYAML(e) {
                 'layer: ' + layer,
                 'area_um2: ' + (meta.area_um2 || ''),
                 'bbox: [' + bbox.join(', ') + ']',
-                'vertex_count: ' + (meta.vertex_count || ''),
-                'repo: ' + repo,
-                'ref: ' + branch,
-                'path: ' + currentFilePath
+                'vertex_count: ' + (meta.vertex_count || '')
             ];
-            if (Object.keys(provenance).length > 0) {
-                lines.push('');
-                if (provenance.instance_name) lines.push('instance_name: ' + provenance.instance_name);
-                if (provenance.cell) lines.push('cell: ' + provenance.cell);
-                if (provenance.file) lines.push('file: ' + provenance.file);
-                if (provenance.line) lines.push('line: ' + provenance.line);
-                if (provenance.function && provenance.function !== '<module>') lines.push('function: ' + provenance.function);
-                if (provenance.class_name) lines.push('class_name: ' + provenance.class_name);
-                if (provenance.call_index) lines.push('call_index: ' + provenance.call_index);
-            }
         } else {
-            // Multi-select: show each component with bbox
-            lines.push('modifications:');
+            // Multi-select: show each component with bbox only
             gdsFeatures.forEach(function(f) {
-                var prov = f.get('provenance') || {};
                 var meta = f.get('meta') || {};
                 var bbox = meta.bbox || [];
                 var bboxStr = '[' + bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']';
-                var file = prov.file || '';
-                var lineNum = prov.line || '';
-                lines.push('  - file: ' + file);
-                lines.push('    line: ' + lineNum);
-                lines.push('    bbox: ' + bboxStr);
+                lines.push('bbox: ' + bboxStr);
             });
         }
     }
