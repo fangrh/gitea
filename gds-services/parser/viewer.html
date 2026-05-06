@@ -318,10 +318,11 @@ function showMultiInspect(features) {
         var prov = f.get('provenance') || {};
         var meta = f.get('meta') || {};
         var bbox = meta.bbox || [];
-        if (prov.file && prov.line) {
+        var lineNum = parseInt(prov.line);
+        if (prov.file && !isNaN(lineNum)) {
             componentList.push({
                 file: prov.file.replace(/\\/g, '/'),
-                line: parseInt(prov.line),
+                line: lineNum,
                 bbox: bbox
             });
         }
@@ -332,7 +333,7 @@ function showMultiInspect(features) {
 
     // Display each component with bbox
     if (componentList.length > 0) {
-        addKV(panel, 'components', componentList.length + ' component(s) with bbox');
+        addKV(panel, 'components', componentList.length + ' component(s)');
         componentList.forEach(function(comp, idx) {
             var base = comp.file.split('/').pop();
             var bboxStr = '[' + comp.bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']';
