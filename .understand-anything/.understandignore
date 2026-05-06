@@ -1,0 +1,101 @@
+# .understandignore — patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+# Lines below are suggestions — uncomment to activate.
+# Use ! prefix to force-include something excluded by defaults.
+#
+# Built-in defaults (always excluded unless negated):
+#   node_modules/, .git/, dist/, build/, obj/, *.lock, *.min.js, etc.
+#
+# --- From .gitignore (uncomment to exclude) ---
+
+# *.o
+# *.a
+# *.so
+# _obj
+# _test
+# .run
+# .uuid
+# /go_build_*
+# /gitea_*
+# __debug_bin*
+# /.vs/
+# mise.toml
+# *.cgo1.go
+# *.cgo2.c
+# _cgo_defun.c
+# _cgo_gotypes.go
+# _cgo_export.*
+# _testmain.go
+# *.exe
+# *.test
+# *.prof
+# *.tsbuildinfo
+# *coverage.out
+# coverage.all
+# cpu.out
+# /modules/migration/bindata.*
+# /modules/options/bindata.*
+# /modules/public/bindata.*
+# /modules/templates/bindata.*
+# *.db
+# *.log.*.gz
+# /gitea
+# /debug
+# /bin
+# /dist
+# /custom/*
+# !/custom/conf/app.example.ini
+# /data
+# /indexers
+# /log
+# /public/assets/img/avatar
+# /tests/e2e-output
+# /tests/integration/gitea-integration-*
+# /tests/integration/indexers-*
+# /tests/*.ini
+# /tests/**/*.git/**/*.sample
+# /node_modules
+# /.venv
+# /yarn.lock
+# /yarn-error.log
+# /npm-debug.log*
+# /.pnpm-store
+# /public/assets/.vite
+# /public/assets/js
+# /public/assets/css
+# /public/assets/fonts
+# /public/assets/licenses.txt
+# /vendor
+# /VERSION
+# /.air
+# /gitea_a*.txt
+# snap/.snapcraft/
+# parts/
+# stage/
+# prime/
+# *.snap
+# *.snap-build
+# *_source.tar.bz2
+# .DS_Store
+# .direnv/
+# /.make_evidence
+# /man
+# /.claude/
+# /.cursorrules
+# /.cursor/
+# /.goosehints
+# /.windsurfrules
+# /.github/copilot-instructions.md
+# /llms.txt
+# .worktrees/
+# Makefile.local
+
+# --- Detected directories (uncomment to exclude) ---
+
+# docs/
+
+# --- Test file patterns (uncomment to exclude) ---
+
+# *.test.*
+# *.spec.*
+# *.snap

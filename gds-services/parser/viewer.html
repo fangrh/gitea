@@ -505,14 +505,15 @@ map.addInteraction(dragBox);
 var dragStartPixel = null;
 
 dragBox.on('boxstart', function(e) {
-    dragStartPixel = e.pixel;
+    dragStartPixel = e.mapBrowserEvent.pixel;
 });
 
 dragBox.on('boxend', function(e) {
     var extent = dragBox.getGeometry().getExtent();
+    var endPixel = e.mapBrowserEvent.pixel;
     var dragDist = Math.sqrt(
-        Math.pow(e.pixel[0] - dragStartPixel[0], 2) +
-        Math.pow(e.pixel[1] - dragStartPixel[1], 2)
+        Math.pow(endPixel[0] - dragStartPixel[0], 2) +
+        Math.pow(endPixel[1] - dragStartPixel[1], 2)
     );
 
     if (dragDist < 5) return;
