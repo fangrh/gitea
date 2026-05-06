@@ -312,7 +312,7 @@ function showMultiInspect(features) {
         addKV(panel, 'provenance', 'No provenance data in selection');
     }
 
-    // Build component list with bbox
+    // Build component list with bbox, grouped by file
     var componentList = [];
     features.forEach(function(f, idx) {
         var meta = f.get('meta') || {};
@@ -334,18 +334,31 @@ function showMultiInspect(features) {
         return a.line - b.line;
     });
 
-    // Display each component with bbox
+    // Display grouped by file
     if (componentList.length > 0) {
         addSep(panel);
         addKV(panel, 'components', componentList.length + ' component(s)');
+
+        // Group by file
+        var fileGroups = {};
         componentList.forEach(function(comp) {
-            var bboxStr = '[' + comp.bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']';
-            if (comp.file && comp.line) {
-                var base = comp.file.split('/').pop();
-                addKV(panel, '', base + ' Component ' + comp.idx + ': Line ' + comp.line + ', bbox:' + bboxStr);
-            } else {
-                addKV(panel, '', 'Component ' + comp.idx + ', bbox:' + bboxStr);
+            var key = comp.file || '__no_provenance__';
+            if (!fileGroups[key]) fileGroups[key] = [];
+            fileGroups[key].push(comp);
+        });
+
+        // Display each file group
+        Object.keys(fileGroups).forEach(function(fileKey) {
+            var comps = fileGroups[fileKey];
+            var base = fileKey ? fileKey.split('/').pop() : '';
+            if (base) {
+                addKV(panel, '', base + ':');
             }
+            comps.forEach(function(comp, ci) {
+                var bboxStr = '[' + comp.bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']';
+                var lineNum = comp.line !== null ? comp.line : '?';
+                addKV(panel, '', '  Component ' + (ci + 1) + ': Line ' + lineNum + ', bbox:' + bboxStr);
+            });
         });
     }
 
@@ -1075,24 +1088,19 @@ function copyYAML(e) {
                 if (provenance.call_index) lines.push('call_index: ' + provenance.call_index);
             }
         } else {
-            var fileMap = {};
+            // Multi-select: show each component with bbox
+            lines.push('modifications:');
             gdsFeatures.forEach(function(f) {
                 var prov = f.get('provenance') || {};
-                if (prov.file && prov.line) {
-                    var fp = prov.file.replace(/\\/g, '/');
-                    if (!fileMap[fp]) fileMap[fp] = [];
-                    var ln = parseInt(prov.line);
-                    if (fileMap[fp].indexOf(ln) === -1) fileMap[fp].push(ln);
-                }
+                var meta = f.get('meta') || {};
+                var bbox = meta.bbox || [];
+                var bboxStr = '[' + bbox.map(function(v) { return v.toFixed(4); }).join(', ') + ']';
+                var file = prov.file || '';
+                var lineNum = prov.line || '';
+                lines.push('  - file: ' + file);
+                lines.push('    line: ' + lineNum);
+                lines.push('    bbox: ' + bboxStr);
             });
-            if (Object.keys(fileMap).length > 0) {
-                lines.push('modifications:');
-                Object.keys(fileMap).sort().forEach(function(fp) {
-                    var sorted = fileMap[fp].sort(function(a, b) { return a - b; });
-                    lines.push('  - file: ' + fp);
-                    lines.push('    lines: [' + sorted.join(', ') + ']');
-                });
-            }
         }
     }
 
